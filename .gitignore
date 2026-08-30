@@ -1,0 +1,8 @@
+*.bkp
+*.dtmp
+
+src/build/
+*.json
+*.fasm
+*.frames
+*.bit
