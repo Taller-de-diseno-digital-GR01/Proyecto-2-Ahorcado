@@ -5,7 +5,7 @@ rst
 BTN_SEL[BTN_SEL] -->|sel|M09
 BTN_OK[BTN_OK] -->|ok|M09
 
-subgraph "UART"
+subgraph "UART"[UART \n TX/RX 115200 baud]
     REG_DATA["REG_DATA"]
     REG_CTRL["REG_CTRL"]
     
@@ -17,8 +17,9 @@ subgraph "LCD"
     
 end
 
-UART -->|TX/RX 115200 baud| M10
-PC -->|TX/RX 115200 baud| UART
+UART -->|"letra(32)"| M10
+PC -->|"letra(32)"| UART
+
 
 
 LETRA-..->PC
@@ -50,6 +51,8 @@ subgraph "FPGA"
     M09["M09_Press-Btn"]
     M10["M10_R-UART"]
     M11["M11_Modo"]
+    M12["M12_T-UART"]
+    M13["M13_Try-Counter"]
 
     M09-->|sel|M11
     M09-->|ok|M11
@@ -57,6 +60,9 @@ subgraph "FPGA"
     M11-->|modo|M04
     M11-->|modo|M08
     M11-->|modo|M03
+    M11-->|modo|M12
+    M07-->|try|M13
+
     
 
     M10-->|word_in|REG_WI
@@ -76,6 +82,7 @@ subgraph "FPGA"
 
     M07-->|check|FSM
     M10-->|valid_w|FSM
+    M13-->|try|FSM
     
 end
 
@@ -84,3 +91,5 @@ M01-->|num_win|7SEG2["7SEG GANADAS"]
 M02-->|sound|BUZZER["BUZZER"]
 M05-->|state|LED_S["LED ESTADO"]
 M04-->|word/Modo|LCD
+M12-->|modo/letra_state/Resultado/w_word/Intentos|UART
+M13-->|try|M12
