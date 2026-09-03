@@ -32,6 +32,7 @@ subgraph "FPGA"
     FSM["FSM"]
     FSM-->|state|M05
     FSM-->|start|M03
+    FSM-->|detener|M03
     FSM-->|choose|M08
 
     FSM-->|load|REG_WI
@@ -71,6 +72,7 @@ subgraph "FPGA"
     M08 --> |word|REG_W
 
 
+    M03-->|tiempo_agotado|FSM
     M03-->|time|M01
     M06-->|num_ganadas|M01
     REG_WI -->|word_in|M07
