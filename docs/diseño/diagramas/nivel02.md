@@ -32,8 +32,6 @@ flowchart TD
     ESL --> buzzer[buzzer]
     ESL --> led[led_estado]
     PC --> pantalla["pantalla de la PC"]
-
-    style CJ fill:#e8e8e8,stroke:#333,stroke-width:2px
 ```
 
 CLK_100MHZ y BTN_RST en realidad entran a los siete bloques, no solo a CONTROL_JUEGO. Se
@@ -225,17 +223,11 @@ el UART que sí necesitan un bus para compartir sus 32 bits entre comandos y dat
 ## Explicación general del sistema
 
 CONTROL_JUEGO es el único bloque que le habla a todos los demás, los otros seis no se hablan
-entre sí directamente. BANCO_PALABRAS y TEMPORIZADOR le entregan datos que la FSM usa para
-decidir, PERIFERICO_LCD y PERIFERICO_UART comparten el mismo bus de 32 bits pero cada uno en
-su propio rango de direcciones, y E_S_LOCALES absorbe todo lo que es demasiado simple como
-para merecer un bus propio.
+entre sí. BANCO_PALABRAS y TEMPORIZADOR le entregan datos, PERIFERICO_LCD y PERIFERICO_UART
+comparten el mismo bus de 32 bits cada uno en su rango, y E_S_LOCALES absorbe lo que es
+demasiado simple como para merecer un bus propio.
 
-Esta partición calza con el reparto de trabajo del equipo, CONTROL_JUEGO, BANCO_PALABRAS y
-TEMPORIZADOR quedan para quien lleve el frente C, PERIFERICO_UART y APP_PC para el frente B,
-y PERIFERICO_LCD junto con E_S_LOCALES para el frente A. Las interfaces entre bloques quedan
-angostas a propósito, así cada frente puede simular su parte contra un vecino simulado sin
-esperar a que los demás terminen.
-
-Lo que todavía no aparece acá, y es justo lo que le toca al nivel 3, es cómo se arma cada
-bloque por dentro. CONTROL_JUEGO en particular esconde por ahora toda la máquina de estados
-de la partida, eso se detalla en el próximo nivel.
+Esta partición calza con el reparto de trabajo del equipo, frente C para CONTROL_JUEGO,
+BANCO_PALABRAS y TEMPORIZADOR, frente B para PERIFERICO_UART y APP_PC, frente A para
+PERIFERICO_LCD y E_S_LOCALES. Cómo se arma cada bloque por dentro, empezando por la FSM de
+CONTROL_JUEGO, es lo que le toca al nivel 3.
