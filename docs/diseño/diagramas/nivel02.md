@@ -41,7 +41,7 @@ dibujan una sola vez para no saturar el diagrama, igual que en nivel 1. BTN_RST 
 CONTROL_JUEGO como pulso decodificado, es un reset físico que llega sincronizado a cada
 bloque por igual, por eso reinicia el contador de partidas ganadas junto con todo lo demás.
 
-## CONTROL_JUEGO (FSM principal)
+## CONTROL_JUEGO
 
 ### Objetivo
 
@@ -74,7 +74,7 @@ Ese último comportamiento todavía está pendiente de redactar en detalle, pero
 diseño es que este bloque es el único responsable de tomarla, ningún otro bloque filtra letras
 por su cuenta.
 
-## BANCO_PALABRAS (ROM + LFSR)
+## BANCO_PALABRAS
 
 ### Objetivo
 
@@ -147,7 +147,9 @@ El equipo no diseña el núcleo serial en sí, sí el envoltorio, registro CONTR
 115200 baudios. El formato exacto de cada trama hacia la PC lo decide CONTROL_JUEGO, este
 bloque solo mueve bytes de un lado al otro del bus.
 
-## APP_PC (terminal del jugador)
+## APP_PC
+
+- terminal del jugador
 
 ### Objetivo
 
