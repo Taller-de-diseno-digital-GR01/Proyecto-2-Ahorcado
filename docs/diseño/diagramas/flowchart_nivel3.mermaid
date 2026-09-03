@@ -1,7 +1,7 @@
 flowchart TD
 
-clk
-rst
+clk --> FPGA
+rst --> FPGA
 BTN_SEL[BTN_SEL] -->|sel|M09
 BTN_OK[BTN_OK] -->|ok|M09
 
@@ -35,10 +35,11 @@ subgraph "FPGA"
     FSM-->|choose|M08
 
     FSM-->|load|REG_WI
-    FSM-->|load|REG_W
+
     FSM-->|start|M02
     FSM-->|show|M04
     FSM-->|count|M06
+    
 
     M01["M01_Marcador"]
     M02["M02_Buzzer"]
@@ -50,18 +51,17 @@ subgraph "FPGA"
     M08["M08_LFSR"]
     M09["M09_Press-Btn"]
     M10["M10_R-UART"]
-    M11["M11_Modo"]
-    M12["M12_T-UART"]
-    M13["M13_Try-Counter"]
+    M11["M11_T-UART"]
+    M12["M12_Try-Counter"]
 
-    M09-->|sel|M11
-    M09-->|ok|M11
-    M11-->|ok|FSM
-    M11-->|modo|M04
-    M11-->|modo|M08
-    M11-->|modo|M03
-    M11-->|modo|M12
-    M07-->|try|M13
+    M09-->|sel|FSM
+    M09-->|ok|FSM
+    FSM-->|modo|M04
+    FSM-->|modo|M08
+    FSM-->|modo|M03
+    FSM-->|modo|M11
+    M07-->|try|M12
+    M07-->|letra_state|M02
 
     
 
@@ -72,17 +72,21 @@ subgraph "FPGA"
 
 
     M03-->|time|M01
-    M06-->|num_win|M01
+    M06-->|num_ganadas|M01
     REG_WI -->|word_in|M07
 
-    REG_W[REG_Palabra-escogida] -->|word|M04
+    REG_W[REG_Palabra-escogida] 
+    REG_WI-->|word|M04
     REG_W-->|word|M07
     M08-->|valid_word|FSM
     REG_WI[REG_Palabra-in]
 
-    M07-->|check|FSM
+    M07-->|letra_state|FSM
+    M07-->|letra_state|M11
+
     M10-->|valid_w|FSM
-    M13-->|try|FSM
+    M12-->|try|FSM
+    REG_W-->|word_length|M11
     
 end
 
@@ -91,5 +95,5 @@ M01-->|num_win|7SEG2["7SEG GANADAS"]
 M02-->|sound|BUZZER["BUZZER"]
 M05-->|state|LED_S["LED ESTADO"]
 M04-->|word/Modo|LCD
-M12-->|modo/letra_state/Resultado/w_word/Intentos|UART
-M13-->|try|M12
+M11-->|modo/letra_state/Resultado/w_word/Intentos|UART
+M12-->|try|M11
