@@ -1,0 +1,29 @@
+flowchart TD
+    CLK_100MHZ[CLK_100MHZ] -.reloj global.-> CJ
+    BTN_RST[BTN_RST] -.reset global.-> CJ
+
+    BTN_SEL[BTN_SEL] --> ESL
+    BTN_OK[BTN_OK] --> ESL
+
+    ESL["E_S_LOCALES<br/>debounce, 7 segmentos, LED, buzzer"]
+    ESL -->|sel_pulso, ok_pulso| CJ
+
+    CJ["CONTROL_JUEGO<br/>FSM principal"]
+
+    CJ <-->|modo, solicitud / palabra, longitud| BP["BANCO_PALABRAS<br/>ROM + LFSR"]
+    CJ <-->|arrancar, detener / tiempo_agotado| TMP["TEMPORIZADOR<br/>cuenta regresiva"]
+    TMP -->|tiempo_restante| ESL
+    CJ -->|estado, tono, ganadas| ESL
+
+    CJ <-->|bus de 32 bits| PLCD["PERIFERICO_LCD<br/>registros PmodCLP"]
+    CJ <-->|bus de 32 bits| PUART["PERIFERICO_UART<br/>registros TX/RX"]
+
+    PUART <-->|TX/RX 115200 baud| PC["APP_PC<br/>terminal del jugador"]
+
+    PLCD --> lcd_palabra["LCD palabra"]
+    PLCD --> lcd_modo["LCD modo"]
+    ESL --> t7seg["7 segmentos tiempo"]
+    ESL --> g7seg["7 segmentos ganadas"]
+    ESL --> buzzer[buzzer]
+    ESL --> led[led_estado]
+    PC --> pantalla["pantalla de la PC"]

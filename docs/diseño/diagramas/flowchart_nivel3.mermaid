@@ -1,0 +1,86 @@
+flowchart TD
+
+clk
+rst
+BTN_SEL[BTN_SEL] -->|sel|M09
+BTN_OK[BTN_OK] -->|ok|M09
+
+subgraph "UART"
+    REG_DATA["REG_DATA"]
+    REG_CTRL["REG_CTRL"]
+    
+end
+
+subgraph "LCD"
+    REG_LCD["REG_LCD"]
+    REG_CTRL_LCD["REG_CTRL_LCD"]
+    
+end
+
+UART -->|TX/RX 115200 baud| M10
+PC -->|TX/RX 115200 baud| UART
+
+
+LETRA-..->PC
+subgraph "PC"
+    App["App"]
+
+end
+
+subgraph "FPGA"
+    FSM["FSM"]
+    FSM-->|state|M05
+    FSM-->|start|M03
+    FSM-->|choose|M08
+
+    FSM-->|load|REG_WI
+    FSM-->|load|REG_W
+    FSM-->|start|M02
+    FSM-->|show|M04
+    FSM-->|count|M06
+
+    M01["M01_Marcador"]
+    M02["M02_Buzzer"]
+    M03["M03_Timer"]
+    M04["M04_showLCD"]
+    M05["M05_State"]
+    M06["M06_Ganadas"]
+    M07["M07_Comparador-letra"]
+    M08["M08_LFSR"]
+    M09["M09_Press-Btn"]
+    M10["M10_R-UART"]
+    M11["M11_Modo"]
+
+    M09-->|sel|M11
+    M09-->|ok|M11
+    M11-->|ok|FSM
+    M11-->|modo|M04
+    M11-->|modo|M08
+    M11-->|modo|M03
+    
+
+    M10-->|word_in|REG_WI
+
+    REG_WS[REG_WBank] -->|bank_word| M08
+    M08 --> |word|REG_W
+
+
+    M03-->|time|M01
+    M06-->|num_win|M01
+    REG_WI -->|word_in|M07
+
+    REG_W[REG_Palabra-escogida] -->|word|M04
+    REG_W-->|word|M07
+    M08-->|valid_word|FSM
+    REG_WI[REG_Palabra-in]
+
+    M07-->|check|FSM
+    M10-->|valid_w|FSM
+    
+end
+
+M01-->|time|7SEG1["7SEG TIEMPO"]
+M01-->|num_win|7SEG2["7SEG GANADAS"]
+M02-->|sound|BUZZER["BUZZER"]
+M05-->|state|LED_S["LED ESTADO"]
+M04-->|word/Modo|LCD
