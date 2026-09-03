@@ -35,7 +35,7 @@ subgraph "FPGA"
     FSM-->|detener|M03
     FSM-->|choose|M08
 
-    FSM-->|load|REG_WI
+    FSM-->|load|REG_LI
 
     FSM-->|start|M02
     FSM-->|show|M04
@@ -66,7 +66,7 @@ subgraph "FPGA"
 
 
 
-    M10-->|word_in|REG_WI
+    M10-->|letra_in|REG_LI
 
     REG_WS[REG_WBank] -->|bank_word| M08
     M08 --> |word|REG_W
@@ -75,13 +75,13 @@ subgraph "FPGA"
     M03-->|tiempo_agotado|FSM
     M03-->|time|M01
     M06-->|num_ganadas|M01
-    REG_WI -->|word_in|M07
+    REG_LI -->|letra_in|M07
 
     REG_W[REG_Palabra-escogida]
-    REG_WI-->|word|M04
+    REG_LI-->|letra_in|M04
     REG_W-->|word|M07
     M08-->|valid_word|FSM
-    REG_WI[REG_Palabra-in]
+    REG_LI[REG_Letra-in]
 
     M07-->|letra_state|FSM
     M07-->|letra_state|M11
