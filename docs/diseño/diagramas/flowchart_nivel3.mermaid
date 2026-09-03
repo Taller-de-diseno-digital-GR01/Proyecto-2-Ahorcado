@@ -5,20 +5,7 @@ BTN_RST[BTN_RST] --> FPGA
 BTN_SEL[BTN_SEL] -->|sel|M09
 BTN_OK[BTN_OK] -->|ok|M09
 
-subgraph "UART"[UART \n TX/RX 115200 baud]
-    REG_DATA["REG_DATA"]
-    REG_CTRL["REG_CTRL"]
-
-end
-
-subgraph "LCD"
-    REG_LCD["REG_LCD"]
-    REG_CTRL_LCD["REG_CTRL_LCD"]
-
-end
-
-UART -->|"letra(32)"| M10
-PC -->|"letra(32)"| UART
+PC -->|"letra(32)"| PERIFERICO_UART
 
 
 
@@ -29,6 +16,20 @@ subgraph "PC"
 end
 
 subgraph "FPGA"
+
+    subgraph "PERIFERICO_UART"[PERIFERICO_UART \n TX/RX 115200 baud]
+        REG_DATA["REG_DATA"]
+        REG_CTRL["REG_CTRL"]
+
+    end
+
+    subgraph "PERIFERICO_LCD"
+        REG_LCD["REG_LCD"]
+        REG_CTRL_LCD["REG_CTRL_LCD"]
+
+    end
+
+    PERIFERICO_UART -->|"letra(32)"| M10
 
     subgraph "CONTROL_JUEGO"
         FSM["FSM"]
@@ -100,5 +101,5 @@ M01-->|time|7SEG1["7SEG TIEMPO"]
 M01-->|num_win|7SEG2["7SEG GANADAS"]
 M02-->|sound|BUZZER["BUZZER"]
 M05-->|state|LED_S["LED ESTADO"]
-M04-->|word/Modo|LCD
-M11-->|modo/letra_state/Resultado/w_word/Intentos|UART
+M04-->|word/Modo|PERIFERICO_LCD
+M11-->|modo/letra_state/Resultado/w_word/Intentos|PERIFERICO_UART
