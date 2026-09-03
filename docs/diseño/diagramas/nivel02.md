@@ -168,3 +168,54 @@ Ser la terminal remota del jugador, sin ninguna lógica de juego propia.
 Valida que la tecla presionada sea A-Z antes de mandarla, pero esa validación es solo para no
 llenar el enlace de basura, la que de verdad manda es la FPGA. Esta app no decide nada del
 resultado de la partida, solo pinta lo que la trama de la FPGA le dice que pinte.
+
+## PERIFERICO_LCD
+
+### Objetivo
+
+Envolver en registros de 32 bits, diseño propio del equipo, el manejo del HD44780 del
+PmodCLP.
+
+### Entradas
+
+- `write_enable_i`, `addr_i`, `wdata_i`, desde CONTROL_JUEGO.
+
+### Salidas
+
+- `rdata_o`, hacia CONTROL_JUEGO, ahí van los bits `busy` y `done`.
+- señales físicas del PmodCLP, `RS`, `RW`, `E`, y el bus de datos de 8 bits.
+
+### Explicación general
+
+Adentro vive la secuencia de inicialización del HD44780, que es uno de los puntos técnicos
+más delicados del proyecto por los tiempos de espera entre comandos. CONTROL_JUEGO no conoce
+esos tiempos, solo escribe comandos o datos de alto nivel y sondea `busy`/`done` antes de
+mandar el siguiente. Ese aislamiento es a propósito, si algún día cambia el driver del LCD
+CONTROL_JUEGO no debería enterarse.
+
+## E_S_LOCALES
+
+### Objetivo
+
+Agrupar la entrada y salida física de la tarjeta que no necesita pasar por el bus de
+periféricos, botones, displays de 7 segmentos, LED, y buzzer.
+
+### Entradas
+
+- `BTN_SEL`, `BTN_OK`, crudos, sin filtrar.
+- `tiempo_restante`, desde TEMPORIZADOR.
+- estado, tono, y contador de partidas ganadas, desde CONTROL_JUEGO.
+
+### Salidas
+
+- `sel_pulso`, `ok_pulso`, ya filtrados de rebote, hacia CONTROL_JUEGO.
+- dígitos de los 7 segmentos.
+- LED de estado.
+- onda cuadrada hacia el buzzer.
+
+### Explicación general
+
+Junta varios bloques chiquitos que no valen la pena separar a este nivel, dos debouncers, dos
+manejadores de display, un generador de onda para el buzzer. Ninguno necesita direccionarse
+por registro porque ninguno comparte el mismo puerto físico con otro, a diferencia del LCD y
+el UART que sí necesitan un bus para compartir sus 32 bits entre comandos y datos.
