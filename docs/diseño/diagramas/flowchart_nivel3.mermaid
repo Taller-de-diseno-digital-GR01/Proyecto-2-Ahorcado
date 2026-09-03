@@ -29,66 +29,70 @@ subgraph "PC"
 end
 
 subgraph "FPGA"
-    FSM["FSM"]
+
+    subgraph "CONTROL_JUEGO"
+        FSM["FSM"]
+        M04["M04_Mostrar-LCD"]
+        M07["M07_Comparador-letra"]
+        M10["M10_Receptor-UART"]
+        M11["M11_Transmisor-UART"]
+        M12["M12_Contador-Intentos"]
+        REG_W[REG_Palabra-escogida]
+        REG_LI[REG_Letra-in]
+
+        FSM-->|load|REG_LI
+        FSM-->|show|M04
+        FSM-->|modo|M04
+        FSM-->|modo|M11
+        M07-->|try|M12
+        M10-->|letra_in|REG_LI
+        REG_LI-->|letra_in|M07
+        REG_LI-->|letra_in|M04
+        REG_W-->|word|M07
+        M07-->|letra_state|FSM
+        M07-->|letra_state|M11
+        M10-->|valid_w|FSM
+        M12-->|try|FSM
+        M12-->|try|M11
+        REG_W-->|word_length|M11
+    end
+
+    subgraph "BANCO_PALABRAS"
+        M08["M08_LFSR"]
+        REG_WS[REG_WBank]
+
+        REG_WS-->|bank_word|M08
+    end
+
+    subgraph "TEMPORIZADOR"
+        M03["M03_Temporizador"]
+    end
+
+    subgraph "E_S_LOCALES"
+        M01["M01_Marcador"]
+        M02["M02_Generador-Tono"]
+        M05["M05_Estado"]
+        M06["M06_Ganadas"]
+        M09["M09_Antirrebote"]
+
+        M06-->|num_ganadas|M01
+    end
+
     FSM-->|state|M05
     FSM-->|start|M03
     FSM-->|detener|M03
     FSM-->|choose|M08
-
-    FSM-->|load|REG_LI
-
     FSM-->|start|M02
-    FSM-->|show|M04
     FSM-->|count|M06
-
-
-    M01["M01_Marcador"]
-    M02["M02_Generador-Tono"]
-    M03["M03_Temporizador"]
-    M04["M04_Mostrar-LCD"]
-    M05["M05_Estado"]
-    M06["M06_Ganadas"]
-    M07["M07_Comparador-letra"]
-    M08["M08_LFSR"]
-    M09["M09_Antirrebote"]
-    M10["M10_Receptor-UART"]
-    M11["M11_Transmisor-UART"]
-    M12["M12_Contador-Intentos"]
-
-    M09-->|sel|FSM
-    M09-->|ok|FSM
-    FSM-->|modo|M04
     FSM-->|modo|M08
     FSM-->|modo|M03
-    FSM-->|modo|M11
-    M07-->|try|M12
     M07-->|letra_state|M02
-
-
-
-    M10-->|letra_in|REG_LI
-
-    REG_WS[REG_WBank] -->|bank_word| M08
-    M08 --> |word|REG_W
-
-
+    M08-->|word|REG_W
+    M08-->|valid_word|FSM
     M03-->|tiempo_agotado|FSM
     M03-->|time|M01
-    M06-->|num_ganadas|M01
-    REG_LI -->|letra_in|M07
-
-    REG_W[REG_Palabra-escogida]
-    REG_LI-->|letra_in|M04
-    REG_W-->|word|M07
-    M08-->|valid_word|FSM
-    REG_LI[REG_Letra-in]
-
-    M07-->|letra_state|FSM
-    M07-->|letra_state|M11
-
-    M10-->|valid_w|FSM
-    M12-->|try|FSM
-    REG_W-->|word_length|M11
+    M09-->|sel|FSM
+    M09-->|ok|FSM
 
 end
 
@@ -98,4 +102,3 @@ M02-->|sound|BUZZER["BUZZER"]
 M05-->|state|LED_S["LED ESTADO"]
 M04-->|word/Modo|LCD
 M11-->|modo/letra_state/Resultado/w_word/Intentos|UART
-M12-->|try|M11
