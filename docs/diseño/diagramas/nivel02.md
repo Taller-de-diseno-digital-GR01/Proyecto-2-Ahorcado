@@ -122,3 +122,49 @@ Es la única fuente de tiempo real del sistema, ahí vive el prescalador que baj
 CONTROL_JUEGO, no hay razón para que la FSM principal repita un dato que ya tiene dueño. El
 enunciado es explícito en que este valor no se transmite por UART, la PC nunca se entera del
 tiempo restante de la partida.
+
+## PERIFERICO_UART
+
+### Objetivo
+
+Envolver en registros de 32 bits el núcleo TX/RX que da el curso, siguiendo la interfaz
+estándar de bus del enunciado.
+
+### Entradas
+
+- `write_enable_i`, `addr_i`, `wdata_i`, desde CONTROL_JUEGO.
+- línea RX física, desde el puente USB-UART de la tarjeta.
+
+### Salidas
+
+- `rdata_o`, hacia CONTROL_JUEGO.
+- línea TX física, hacia el mismo puente USB-UART.
+
+### Explicación general
+
+El equipo no diseña el núcleo serial en sí, sí el envoltorio, registro CONTROL con `send` y
+`new_rx`, y los registros de datos de transmisión y recepción por separado. Corre fijo a
+115200 baudios. El formato exacto de cada trama hacia la PC lo decide CONTROL_JUEGO, este
+bloque solo mueve bytes de un lado al otro del bus.
+
+## APP_PC (terminal del jugador)
+
+### Objetivo
+
+Ser la terminal remota del jugador, sin ninguna lógica de juego propia.
+
+### Entradas
+
+- trama recibida desde PERIFERICO_UART, por el mismo puente USB-UART.
+- tecla A-Z presionada por el jugador.
+
+### Salidas
+
+- byte ASCII de la letra, hacia PERIFERICO_UART.
+- texto en la pantalla de la PC.
+
+### Explicación general
+
+Valida que la tecla presionada sea A-Z antes de mandarla, pero esa validación es solo para no
+llenar el enlace de basura, la que de verdad manda es la FPGA. Esta app no decide nada del
+resultado de la partida, solo pinta lo que la trama de la FPGA le dice que pinte.
