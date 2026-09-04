@@ -15,22 +15,20 @@ subgraph "PC"
 
 end
 
-subgraph "PERIFERICO_UART"[PERIFERICO_UART \n TX/RX 115200 baud]
+subgraph "FPGA"
+
+    subgraph "PERIFERICO_UART"[PERIFERICO_UART \n TX/RX 115200 baud]
         REG_CTRL["REG_CTRL\nsend(0,WC) new_rx(1,RW)"]
         REG_DATOS_TX["REG_DATOS_TX"]
         REG_DATOS_RX["REG_DATOS_RX"]
 
     end
 
-subgraph "PERIFERICO_LCD"
+    subgraph "PERIFERICO_LCD"
         REG_CTRL_LCD["REG_CTRL_ESTADO\nstart(0,W1P) rs(1) clear(2,W1P) home(3,W1P) busy(8,RO) done(9,RO)"]
         REG_LCD["REG_DATOS\ndata_byte(7:0)"]
 
     end
-subgraph "FPGA"
-
-    
-    
 
     subgraph "CONTROL_JUEGO"
         FSM["FSM"]
@@ -80,7 +78,8 @@ subgraph "FPGA"
         M06-->|num_ganadas|M01
     end
 
-    
+    CONTROL_JUEGO <-->|"bus 32b"| PERIFERICO_UART
+    CONTROL_JUEGO <-->|"bus 32b"| PERIFERICO_LCD
 
     FSM-->|state|M05
     FSM-->|start|M03
@@ -106,6 +105,3 @@ M02-->|sound|BUZZER["BUZZER"]
 M05-->|state|LED_S["LED ESTADO"]
 M04-->|word/Modo|PERIFERICO_LCD
 M11-->|modo/letra_state/Resultado/w_word/Intentos|PERIFERICO_UART
-
-CONTROL_JUEGO <-->|"bus 32b"| PERIFERICO_UART
-CONTROL_JUEGO <-->|"bus 32b"| PERIFERICO_LCD
