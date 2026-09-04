@@ -132,3 +132,52 @@ byte por sondear demasiado lento.
 
 ---
 
+## i) Diagrama esquemático detallado del diseño
+
+```mermaid
+flowchart LR
+    BUS(["rdata_o (bus 32b)"]) --> REG_RX["REG_RX<br/>registro de dato"]
+    BUS --> BIT_NRX["SEL_BIT<br/>new_rx"]
+
+    REG_RX --> CMP_LO{"CMP >= 0x41"}
+    REG_RX --> CMP_HI{"CMP <= 0x5A"}
+    CMP_LO --> AND_RNG["AND<br/>en rango A-Z"]
+    CMP_HI --> AND_RNG
+
+    ST(["state"]) --> CMP_JG{"CMP = JUEGO"}
+
+    BIT_NRX --> FSM_BUS["FSM_BUS<br/>ESPERA / LEE / LIMPIA"]
+    FSM_BUS --> AND_VAL["AND<br/>acepta la letra"]
+    AND_RNG --> AND_VAL
+    CMP_JG --> AND_VAL
+
+    AND_VAL --> OUT_VW(["valid_w"])
+    REG_RX --> OUT_LETRA(["letra_in"])
+
+    FSM_BUS --> OUT_ADDR(["addr_i[1:0]"])
+    FSM_BUS --> OUT_WE(["write_enable_i"])
+    FSM_BUS --> OUT_WD(["wdata_i (new_rx = 0)"])
+```
+
+`clk` y `rst` entran a `REG_RX` y a `FSM_BUS` aunque no se dibujen.
+
+---
+
+## j) Diagrama completo de conexiones del diseño
+
+Este módulo no tiene puertos físicos propios. La línea RX de la tarjeta entra al núcleo TX/RX
+dentro de `PERIFERICO_UART`, no acá, así que la restricción de pin del puente USB-UART pertenece a
+ese periférico y no a este archivo.
+
+Conexiones del instanciado dentro de `CONTROL_JUEGO`:
+
+- `clk`, al reloj global de 100 MHz.
+- `rst`, a BTN_RST ya sincronizado.
+- `state`, desde `M13_FSM`.
+- `rdata_o[31:0]`, desde `PERIFERICO_UART`, compartido con `M11_Transmisor-UART`.
+- `addr_i[1:0]`, `write_enable_i`, `wdata_i[31:0]`, hacia `PERIFERICO_UART`, compartidos con
+  `M11_Transmisor-UART` y arbitrados en el instanciado de `CONTROL_JUEGO`.
+- `letra_in`, `valid_w`, hacia `REG_Letra-in`.
+
+Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño que
+se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.
