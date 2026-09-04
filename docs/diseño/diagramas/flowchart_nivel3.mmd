@@ -31,7 +31,7 @@ subgraph "FPGA"
     end
 
     subgraph "CONTROL_JUEGO"
-        FSM["FSM"]
+        FSM["M13_FSM"]
         M04["M04_Mostrar-LCD"]
         M07["M07_Comparador-letra"]
         M10["M10_Receptor-UART"]
@@ -40,21 +40,23 @@ subgraph "FPGA"
         REG_W[REG_Palabra-escogida]
         REG_LI[REG_Letra-in]
 
-        FSM-->|load|REG_LI
-        FSM-->|show|M04
-        FSM-->|modo|M04
-        FSM-->|modo|M11
         M07-->|try|M12
         M10-->|letra_in|REG_LI
+        M10-->|valid_w|REG_LI
         REG_LI-->|letra_in|M07
         REG_LI-->|letra_in|M04
         REG_W-->|word|M07
-        M07-->|letra_state|FSM
         M07-->|letra_state|M11
-        M10-->|valid_w|FSM
-        M12-->|try|FSM
+        M07-->|palabra_completa|FSM
         M12-->|try|M11
+        M12-->|intentos_agotados|FSM
         REG_W-->|word_length|M11
+        FSM-->|state|REG_LI
+        FSM-->|state|M07
+        FSM-->|state|M10
+        FSM-->|state|M12
+        FSM-->|"state, modo"|M04
+        FSM-->|"state, modo"|M11
     end
 
     subgraph "BANCO_PALABRAS"
@@ -81,18 +83,16 @@ subgraph "FPGA"
     CONTROL_JUEGO <-->|"bus 32b"| PERIFERICO_UART
     CONTROL_JUEGO <-->|"bus 32b"| PERIFERICO_LCD
 
+    FSM-->|state|M02
     FSM-->|state|M05
-    FSM-->|start|M03
-    FSM-->|detener|M03
-    FSM-->|choose|M08
-    FSM-->|start|M02
-    FSM-->|count|M06
-    FSM-->|modo|M08
-    FSM-->|modo|M03
+    FSM-->|state|M06
+    FSM-->|"state, modo"|M03
+    FSM-->|"state, modo"|M08
     M07-->|letra_state|M02
     M08-->|word|REG_W
     M08-->|valid_word|FSM
     M03-->|tiempo_agotado|FSM
+    M03-->|fin_espera|FSM
     M03-->|time|M01
     M09-->|sel|FSM
     M09-->|ok|FSM
