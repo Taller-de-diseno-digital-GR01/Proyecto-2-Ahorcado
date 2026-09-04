@@ -23,8 +23,7 @@ II Semestre 2026
 ## Diseño modular
 
 Todo el diseño (los tres niveles de diagramas y el detalle de cada módulo) también está junto en
-un solo archivo en [`docs/diseño/diseño.md`](docs/diseño/diseño.md). Los enlaces de abajo van a
-cada archivo individual, que es la fuente de verdad que hay que editar.
+un solo archivo en [`docs/diseño/diseño.md`](docs/diseño/diseño.md).
 
 ### Nivel 1 — Sistema completo
 
