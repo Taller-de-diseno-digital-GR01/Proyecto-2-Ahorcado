@@ -1467,26 +1467,246 @@ Este diseño mantiene un único dominio de reloj de `100 MHz`. `tick_ref` funcio
 
 ---
 
-# M02 - Generador de tono
+# M02 - Generador-Tono
 
-## Propósito
+## a) Nombre del módulo
 
-Genera la señal sonora del juego para indicar el resultado de una letra o de una transición de estado.
+M02_Generador-Tono
 
-## Entradas
+## b) Diagrama modular
 
-- `start`: habilitación de la generación de sonido desde la `FSM`.
-- `letra_state`: resultado de la letra entregado por `M07_Comparador-letra`.
+```mermaid
+flowchart LR
+    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>detecta fin de partida"]
+    DEC_ST --> REG_EN["REG_ENABLE<br/>registro"]
+    IN_LST(["letra_state (de M07)"]) --> REG_EN
+    IN_LST --> MUX1{{"MUX 3:1<br/>tono acierto/fallo/fin"}}
+    DEC_ST --> MUX1
+    MUX1 --> REG_N["REG_N<br/>registro (valor N)"]
+    REG_EN --> CNT_DIV["CONT_DIVISOR<br/>contador (prescaler)"]
+    REG_N --> CMP1{"CMP = N<br/>comparador"}
+    CNT_DIV --> CMP1
+    CMP1 -->|toggle| REG_SQ["REG_ONDA<br/>flip-flop T"]
+    REG_SQ --> OUT_SND(["sound (a BUZZER)"])
+    CNT_DUR["CONT_DURACION<br/>contador"] -->|fin| REG_EN
+    REG_EN --> CNT_DUR
+```
 
-**REVISAR LESTRA_STATE**
+## c) Objetivo del módulo
 
-## Salidas
+Generar el tono del buzzer. Se dispara solo, con `letra_state` de M07_Comparador-letra para
+distinguir acierto de fallo, y decodificando `state` para el tono de fin de partida cuando el
+sistema entra a GANO, PERDIO_INTENTOS o PERDIO_TIEMPO. Son los tres sonidos distintos que pide el
+enunciado.
 
-- `sound`: señal hacia el buzzer.
+## d) Entradas
 
-## Funcionamiento
+- `clk`, `rst`.
+- `state[2:0]`: estado actual, desde M13_FSM, de ahí saca la entrada a un estado de fin de
+  partida.
+- `letra_state[1:0]`: resultado de la última letra evaluada, desde M07_Comparador-letra. Se
+  asume, siguiendo la convención de pulsos limpios que ya usan `sel`/`ok`/`valid_word` en el
+  resto del proyecto, que M07 solo mantiene este valor en `01` (acierto) o `10` (fallo) durante
+  **un ciclo de reloj**, y en `00` el resto del tiempo; `11` queda reservado para letra repetida
+  y no dispara tono. **Este contrato queda pendiente de confirmar** contra la documentación real
+  de M07_Comparador-letra cuando se escriba, porque hoy solo existe su diagrama modular.
 
-Selecciona y genera el tono correspondiente al evento indicado por `start` y `letra_state`.
+## e) Salidas
+
+- `sound`: onda cuadrada de audio, hacia BUZZER.
+
+## f) Explicación de la relación con otros módulos
+
+M02 no recibe órdenes puntuales de nadie ni le devuelve nada a ningún módulo M0X; es, junto con
+M05_Estado, uno de los módulos más aislados del diseño, salida directa hacia BUZZER sin pasar por
+CONTROL_JUEGO ni por ningún bus.
+
+De `state` (M13_FSM) solo le importan tres de los seis códigos, GANO, PERDIO_INTENTOS y
+PERDIO_TIEMPO; el resto (SELECCION, CARGA, JUEGO) es indistinguible para este módulo y no dispara
+nada por sí solo. De `letra_state` (M07_Comparador-letra) solo le importan dos de los cuatro
+códigos posibles, acierto y fallo; letra repetida no genera sonido, consistente con que el
+enunciado dice que una letra repetida "se ignora sin penalizar", y M02 extiende ese silencio
+también al buzzer.
+
+M02 no sabe si el fin de partida fue victoria o alguna de las dos derrotas, decodifica los tres
+estados de fin como un solo evento y usa el mismo tono para los tres. Esto es intencional: el
+enunciado pide "tono distinto para acierto, error, y fin de partida", tres tonos, no cinco, así
+que no hay necesidad de que M02 distinga la causa del fin de partida como sí lo hacen M04 y M11.
+
+## g) Funcionamiento
+
+El módulo vigila dos eventos en paralelo: la entrada a un estado de fin de partida (decodificado
+de `state`) y un pulso de `letra_state` en acierto o fallo. Cualquiera de los dos, al ocurrir,
+dispara un tono nuevo, con la entrada a fin de partida teniendo prioridad sobre un acierto o
+fallo que llegara en el mismo ciclo (esto puede pasar de verdad: la última letra que completa la
+palabra genera `letra_state = acierto` en M07 en el mismo ciclo en que `palabra_completa` mueve a
+la FSM a GANO, así que hace falta una regla de prioridad y se eligió que suene el tono de fin, no
+el de acierto, para que el jugador no pierda esa señal).
+
+Al dispararse un tono, el módulo carga en `REG_N` el divisor de frecuencia que le corresponde
+(uno distinto por cada uno de los tres tonos), reinicia el contador de duración desde cero, y
+arranca `REG_ENABLE`. Mientras `REG_ENABLE` esté activo, un contador (`CONT_DIVISOR`) cuenta
+ciclos de reloj y cada vez que alcanza el valor cargado en `REG_N` conmuta un flip-flop tipo T
+(`REG_ONDA`), lo que genera una onda cuadrada de la frecuencia deseada, la misma técnica de
+divisor de frecuencia que usa M03_Temporizador para bajar de 100 MHz a 1 Hz, aplicada aquí para
+bajar de 100 MHz a un tono audible. Un segundo contador (`CONT_DURACION`) cuenta en paralelo
+mientras `REG_ENABLE` está activo; cuando llega a la duración fija del tono, apaga
+`REG_ENABLE` y el módulo vuelve a silencio hasta el próximo disparo.
+
+La salida `sound` no es directamente `REG_ONDA`: se combina con `REG_ENABLE` (`sound = REG_ONDA
+AND REG_ENABLE`) para que el buzzer quede en `0` franco entre tonos, en vez de quedarse
+"congelado" en `1` si el último toggle antes de apagarse dejó la onda en alto. Un piezoeléctrico
+pasivo con una tensión de continua sostenida no sueña nada pero sí puede degradarse con el tiempo,
+así que forzar el silencio a `0` es la opción más segura y no cuesta hardware adicional, un único
+AND de dos entradas.
+
+## h) Diseño
+
+### Detector de entrada a fin de partida
+
+`DECOD_ESTADO` es puramente combinacional:
+
+```
+dec_fin = (state == GANO) | (state == PERDIO_INTENTOS) | (state == PERDIO_TIEMPO)
+```
+
+Como `dec_fin` es un nivel que se mantiene mientras dure el estado de fin (hasta 3 s, ver
+M03_Temporizador), hace falta un detector de flanco para no quedarse re-disparando el tono cada
+ciclo. Se registra `dec_fin` un ciclo (`dec_fin_prev`) y se genera un pulso de un ciclo:
+
+| `dec_fin` (actual) | `dec_fin_prev` | `pulso_fin` |
+|---|---|---|
+| 0 | 0 | 0 |
+| 0 | 1 | 0 |
+| 1 | 0 | 1 |
+| 1 | 1 | 0 |
+
+`pulso_fin = dec_fin AND (NOT dec_fin_prev)`, la misma estructura de detector de flanco de subida
+que usa M09_Botones sobre el valor ya estable de cada botón.
+
+### Selección de disparo y de frecuencia (MUX 3:1)
+
+Señal de disparo combinacional:
+
+```
+trig = pulso_fin OR (letra_state == 2'b01) OR (letra_state == 2'b10)
+```
+
+El `MUX 3:1` decide, con prioridad fin > acierto > fallo, qué valor de `N` se carga en `REG_N`
+cuando `trig = 1`:
+
+| `pulso_fin` | `letra_state` | Tono seleccionado | `N` cargado en `REG_N` |
+|---|---|---|---|
+| 1 | XX | FIN | `N_FIN` |
+| 0 | 01 | ACIERTO | `N_ACIERTO` |
+| 0 | 10 | FALLO | `N_FALLO` |
+| 0 | 00 | (sin disparo) | `REG_N` conserva su valor |
+| 0 | 11 | (sin disparo, repetida) | `REG_N` conserva su valor |
+
+### REG_ENABLE y CONT_DURACION
+
+`CONT_DURACION` es un contador que corre solo mientras `REG_ENABLE = 1`, y comparte una única
+duración fija (`DUR_CYCLES`) para los tres tonos, ya que el diagrama modular solo contempla un
+contador de duración y no un segundo mux para seleccionarla; distinguir los tonos únicamente por
+frecuencia es suficiente para el propósito de este módulo y evita duplicar hardware de selección.
+
+| `trig` | `REG_ENABLE` actual | `CONT_DURACION = DUR_CYCLES-1`? | `REG_ENABLE` siguiente | `CONT_DURACION` siguiente |
+|---|---|---|---|---|
+| 1 | X | X | 1 | 0 (reinicia, un disparo nuevo interrumpe al que estuviera sonando) |
+| 0 | 0 | X | 0 | 0 |
+| 0 | 1 | 0 | 1 | `CONT_DURACION + 1` |
+| 0 | 1 | 1 | 0 | 0 |
+
+### CONT_DIVISOR y REG_ONDA (generación de la onda cuadrada)
+
+`CONT_DIVISOR` solo cuenta mientras `REG_ENABLE = 1`; en reposo, o justo al dispararse un `trig`
+nuevo, se fuerza a 0 junto con `REG_ONDA`, para que cada tono arranque siempre desde silencio con
+un flanco limpio en vez de heredar la fase del tono anterior:
+
+| `trig` | `REG_ENABLE` | `CONT_DIVISOR = REG_N`? | `CONT_DIVISOR` siguiente | `REG_ONDA` siguiente |
+|---|---|---|---|---|
+| 1 | X | X | 0 | 0 |
+| 0 | 0 | X | 0 | 0 (mantiene silencio) |
+| 0 | 1 | 0 | `CONT_DIVISOR + 1` | `REG_ONDA` (sin cambio) |
+| 0 | 1 | 1 | 0 | `NOT REG_ONDA` (toggle) |
+
+Con esto la frecuencia de salida es `f = f_clk / (2 · (N + 1))`, la misma relación que usa
+M03_Temporizador para su `tick_1Hz`, solo que acá el "período" de interés es audible en vez de
+segundos.
+
+### Valores de frecuencia y duración propuestos
+
+Se exponen como `parameter` con valores de producción por defecto (no `localparam`), siguiendo el
+principio ya usado en otros módulos del proyecto de dejar las constantes de tiempo overrideables
+desde el testbench para simulación práctica en EDA Playground:
+
+| Parámetro | Valor por defecto | Frecuencia resultante | `N` (18 bits) |
+|---|---|---|---|
+| `F_ACIERTO_HZ` | 1000 Hz | agudo, "positivo" | `N_ACIERTO = 49 999` |
+| `F_FALLO_HZ` | 250 Hz | grave, "negativo" | `N_FALLO = 199 999` |
+| `F_FIN_HZ` | 500 Hz | intermedio, distinguible de los otros dos | `N_FIN = 99 999` |
+| `DUR_MS` | 150 ms | duración común a los tres tonos | `DUR_CYCLES = 14 999 999` (24 bits) |
+
+`CONT_DIVISOR` necesita 18 bits para alcanzar 199 999 (el `N` más grande, el del tono más grave).
+`CONT_DURACION` necesita 24 bits para alcanzar 14 999 999. Ambos anchos van con `$clog2` sobre los
+parámetros, no fijos a mano, para que si el equipo ajusta las frecuencias o la duración el ancho
+de los contadores se recalcule solo.
+
+## i) Diagrama esquemático detallado (por compuertas lógicas)
+
+```mermaid
+flowchart LR
+    STATEIN(["state"]) --> DECFIN["comparador<br/>dec_fin = OR de 3 igualdades"]
+    DECFIN --> DPREV["D-FF<br/>dec_fin_prev"]
+    CLK1(["clk"]) --> DPREV
+    DECFIN --> ANDF["AND<br/>(dec_fin_prev invertido)"]
+    DPREV --> ANDF
+    ANDF --> PFIN["pulso_fin"]
+
+    LST(["letra_state[1:0]"]) --> CMPA{"CMP = 01<br/>acierto"}
+    LST --> CMPB{"CMP = 10<br/>fallo"}
+    PFIN --> ORT["OR3<br/>trig"]
+    CMPA --> ORT
+    CMPB --> ORT
+    ORT --> TRIG["trig"]
+
+    PFIN --> MUXN{{"MUX 3:1<br/>N_FIN/N_ACIERTO/N_FALLO"}}
+    CMPA --> MUXN
+    CMPB --> MUXN
+    MUXN --> DN["D-FF (bus)<br/>REG_N"]
+    TRIG --> DN
+    CLK1 --> DN
+
+    TRIG --> ORE["OR<br/>REG_ENABLE next"]
+    DUREND["CONT_DURACION = fin?"] --> ORE
+    ORE --> DE["D-FF<br/>REG_ENABLE"]
+    CLK1 --> DE
+    DE --> CTEN_DUR["enable"]
+    CTEN_DUR --> CNTDUR["CONT_DURACION<br/>contador"]
+    CLK1 --> CNTDUR
+    TRIG -->|clear| CNTDUR
+    CNTDUR --> DUREND
+
+    DE --> CTEN_DIV["enable"]
+    CTEN_DIV --> CNTDIV["CONT_DIVISOR<br/>contador"]
+    CLK1 --> CNTDIV
+    TRIG -->|clear| CNTDIV
+    CNTDIV --> CMPN{"CMP = REG_N"}
+    DN --> CMPN
+    CNTDIV -->|clear en match| CNTDIV
+    CMPN -->|toggle| DONDA["D-FF T<br/>REG_ONDA"]
+    CLK1 --> DONDA
+    TRIG -->|clear| DONDA
+
+    DONDA --> ANDOUT["AND"]
+    DE --> ANDOUT
+    ANDOUT --> SOUND(["sound"])
+```
+
+`clk` y `rst` entran a todo registro/contador del módulo aunque no se dibujen en cada elemento,
+por el mismo criterio usado en el resto de los diagramas del proyecto; `rst` fuerza
+`REG_ENABLE = 0`, `dec_fin_prev = 0`, `CONT_DIVISOR = 0`, `CONT_DURACION = 0` y `REG_ONDA = 0`,
+dejando el buzzer en silencio tras cualquier reinicio, incluido `BTN_RST` a mitad de un tono.
 
 ---
 
@@ -2181,24 +2401,274 @@ pendiente confirmárselo al profesor.
 
 # M08 - LFSR
 
-## Propósito
+## a) Nombre del módulo
 
-Selecciona una palabra del banco de palabras mediante una secuencia pseudoaleatoria.
+M08_LFSR
 
-## Entradas
+## b) Diagrama modular
 
-- `bank_word`: palabra disponible en `REG_WBank`.
-- `choose`: orden de selección desde la `FSM`.
-- `modo`: modo de operación desde la `FSM`.
+```mermaid
+flowchart LR
+    XOR_FB["XOR<br/>realimentación"] --> REG_LFSR["REG_LFSR<br/>registro de desplazamiento (6b)"]
+    REG_LFSR --> XOR_FB
 
-## Salidas
+    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>detecta entrada a CARGA"]
+    DEC_ST --> DPREV["D-FF<br/>dec_carga_prev"]
+    DEC_ST --> ANDP["AND<br/>(prev invertido)"]
+    DPREV --> ANDP
+    ANDP --> PULSO["pulso_carga"]
 
-- `word`: palabra seleccionada hacia `REG_Palabra-escogida`.
-- `valid_word`: indica a la `FSM` que la palabra seleccionada es válida.
+    REG_LFSR -->|"[5:0]"| CMPF{"CMP ≤ 50<br/>índice fácil válido"}
+    REG_LFSR -->|"[4:0]"| ROMD["ROM_IDX_DIFICIL<br/>20 entradas"]
+    ROMD --> CMPD{"CMP < 20<br/>índice difícil válido"}
 
-## Funcionamiento
+    IN_MODO(["modo (de M13_FSM)"]) --> MUXV{{"MUX 2:1<br/>válido / dirección"}}
+    CMPF --> MUXV
+    CMPD --> MUXV
+    REG_LFSR -->|"dir_facil"| MUXV
+    ROMD -->|"dir_dificil"| MUXV
 
-Genera el índice pseudoaleatorio con un registro de desplazamiento con realimentación lineal y selecciona la palabra correspondiente del banco.
+    MUXV -->|"bank_addr"| OUT_ADDR(["bank_addr (a REG_WBank)"])
+    PULSO --> REGCARG["REG_CARGADO<br/>flip-flop"]
+    MUXV -->|"valido"| REGCARG
+
+    IN_BANK(["bank_word (de REG_WBank)"]) --> REG_SEL["REG_WORD_SEL<br/>registro (palabra + longitud)"]
+    REGCARG --> REG_SEL
+    REG_SEL --> OUT_WORD(["word (a REG_Palabra-escogida)"])
+    REGCARG --> OUT_VALID(["valid_word (a M13_FSM)"])
+```
+
+`clk` y `rst` entran a todo registro/contador aunque no se dibujen, por el mismo criterio del
+resto de los diagramas del proyecto.
+
+Nota sobre la diferencia con el diagrama de `nivel03.md`: ese diagrama muestra `bank_word`
+entrando a M08 pero no dibuja la flecha de salida `bank_addr` hacia `REG_WBank`, la dirección que
+M08 tiene que generar para que la ROM le devuelva algo. Es la misma omisión de nivel de detalle
+que M11_Transmisor-UART señala para la arbitración del bus, y queda igual de pendiente: a nivel
+2/3 se simplifica, acá en nivel de módulo hace falta dibujarla para que el diseño cierre.
+
+## c) Objetivo del módulo
+
+Escoger de forma pseudoaleatoria la palabra secreta de la partida. Un LFSR corre libre todo el
+tiempo, sin depender de `state`; al ver que `state` entró a CARGA, el módulo muestrea el valor
+del LFSR en ese instante (y, si hiciera falta, en los ciclos siguientes) para producir una
+dirección válida dentro del banco de 50 palabras, acotada según `modo`, se la entrega a
+`REG_WBank` como `bank_addr`, recibe de vuelta `bank_word` (los caracteres y la longitud de esa
+palabra), y lo entrega como `word` a `REG_Palabra-escogida` junto con `valid_word` para que
+M13_FSM pase a JUEGO.
+
+## d) Entradas
+
+- `clk`, `rst`.
+- `state[2:0]`: estado actual, desde M13_FSM. Solo le importa distinguir CARGA del resto; el
+  módulo decodifica la entrada a ese estado igual que hacen M02, M06, M11 y M12 con sus propios
+  eventos de interés.
+- `modo`: FACIL o DIFICIL, desde M13_FSM. Acota el rango de palabras válidas.
+- `bank_word[78:0]`: palabra leída de `REG_WBank` en la dirección que M08 acaba de pedir,
+  formato `{longitud[3:0], letra15[4:0], ..., letra1[4:0]}` (ver h). Combinacional respecto a
+  `bank_addr`, no hay reloj de por medio en la ROM.
+
+## e) Salidas
+
+- `bank_addr[5:0]`: dirección hacia `REG_WBank`, valores `1`–`50`. No está en la lista original
+  de `nivel03.md` (ver nota en b), pero es imprescindible para que el módulo tenga con qué
+  direccionar la ROM.
+- `word[78:0]`: palabra escogida, mismo formato que `bank_word`, hacia `REG_Palabra-escogida`.
+- `valid_word`: bandera de palabra lista, hacia M13_FSM.
+
+## f) Explicación de la relación con otros módulos
+
+M08 solo recibe `state` y `modo` de M13_FSM, igual que la mayoría de los módulos de
+CONTROL_JUEGO, y no le devuelve nada a la FSM salvo `valid_word`. Su única otra relación es con
+`REG_WBank`, el registro/ROM que vive junto a él dentro del subgraph BANCO_PALABRAS de
+`nivel03.md`: le pide una dirección (`bank_addr`) y recibe el contenido (`bank_word`). No tiene
+ninguna relación con M02, M04, M05, M06, M07, M09, M10, M11 ni M12; es tan aislado como
+M03_Temporizador, solo que en vez de "aislado y con un reloj propio" es "aislado y con un
+generador de aleatoriedad propio".
+
+A diferencia de M07_Comparador-letra o M12_Contador-Intentos, que se limpian al **entrar** a
+CARGA para la partida que empieza, M08 hace lo contrario: es quien **dispara** la salida de
+CARGA, al ser el único módulo que le debe algo a M13_FSM (`valid_word`) antes de que la FSM pueda
+avanzar. Es el mismo patrón que `tiempo_agotado`/`fin_espera` de M03, una señal que la FSM espera
+sin apurar a nadie.
+
+El LFSR en sí no tiene ninguna relación con `state`: corre libre desde el primer ciclo después de
+`rst` y nunca se detiene, ni siquiera durante JUEGO o los estados de resultado. Es la decisión de
+diseño que ya adelanta `nivel02.md`, para que la palabra elegida no dependa de un seed fijo ni del
+instante exacto en que arrancó el sistema, sino de cuántos ciclos de reloj — impredecibles desde
+el punto de vista del jugador — pasaron desde el encendido hasta que se confirmó `ok`.
+
+## g) Explicación de funcionamiento
+
+El registro `REG_LFSR`, de 6 bits, se desplaza un bit cada ciclo de reloj con realimentación XOR
+(polinomio de período máximo, ver h), generando una secuencia pseudoaleatoria de 63 valores no
+nulos que se repite cada 63 ciclos, es decir, cada 630 ns a 100 MHz. Esto pasa siempre, sin
+importar en qué estado esté el sistema.
+
+Mientras `state` no sea CARGA, el resto del módulo permanece en reposo: `REG_CARGADO` está en 0 y
+`valid_word` en 0. Al detectar la entrada a CARGA (flanco de `state`, mismo detector de flanco que
+usan M02 y M11 sobre sus propios niveles de interés), el módulo empieza a evaluar, ciclo a ciclo,
+si el valor **actual** del LFSR cae dentro del rango válido para el `modo` vigente:
+
+- En FACIL, cualquier valor de `REG_LFSR` entre 1 y 50 es una dirección válida directa hacia el
+  banco de 50 palabras.
+- En DIFICIL, se toman los 5 bits menos significativos de `REG_LFSR` como índice (0 a 31) hacia
+  `ROM_IDX_DIFICIL`, una tabla de solo 20 entradas con las direcciones (1 a 50) de las palabras de
+  6 letras o más dentro del mismo banco de 50; un índice de 20 a 31 no tiene entrada y se descarta
+  como no válido.
+
+Como el LFSR sigue corriendo libre durante toda esta espera, un valor no válido en un ciclo no
+detiene nada: simplemente el módulo vuelve a mirar en el ciclo siguiente, con un valor distinto.
+En la práctica esto tarda como mucho un puñado de ciclos de reloj (en FACIL, 50 de 63 valores son
+válidos; en DIFICIL, 20 de 32), muchísimo más rápido que cualquier cosa perceptible por el
+jugador. Esto es, de hecho, la razón de que CARGA exista como estado propio en vez de resolverse
+en el mismo ciclo en que se confirma `ok`: la FSM ya está diseñada (ver M13_FSM, g) para
+quedarse esperando en CARGA sin hacer nada más hasta que `valid_word` se levante.
+
+En cuanto aparece un valor válido, el módulo lo fija como `bank_addr` hacia `REG_WBank`, que
+responde en el mismo ciclo con `bank_word` (la ROM es combinacional, sin reloj propio). Ese
+mismo ciclo, `REG_CARGADO` se pone en 1 y `REG_WORD_SEL` captura `bank_word`. `REG_CARGADO` se
+mantiene en 1 el resto de la partida — no hace falta bajarlo antes, porque a M13_FSM solo le
+importa `valid_word` mientras está en CARGA, y a la siguiente partida se limpia solo al volver a
+detectar la entrada a un nuevo CARGA (ver h). `REG_LFSR` nunca se detiene ni siquiera después de
+esto, así que cuando la próxima partida entre a CARGA el punto de partida de la búsqueda ya es
+otro, sin relación con la palabra anterior.
+
+## h) Diseño
+
+### Parámetros y anchos
+
+| Parámetro | Valor por defecto | Justificación |
+|---|---|---|
+| `N_PALABRAS` | 50 | Mínimo que exige el enunciado (nivel01, "banco de al menos 50 palabras"). |
+| `N_PALABRAS_DIFICIL` | 20 | Subconjunto de palabras de 6+ letras, por definir en equipo al armar la ROM. |
+| `LFSR_WIDTH` | 6 bits | `$clog2(N_PALABRAS+1) = 6`, cubre direcciones 1–50 con margen (hasta 63) sin necesitar un ancho mayor. |
+| `IDX_DIFICIL_WIDTH` | 5 bits | `$clog2(32)`, ancho natural de los 5 bits menos significativos de `REG_LFSR` que se reutilizan como índice hacia `ROM_IDX_DIFICIL`. |
+| `WORD_MAXLEN` | 15 | Igual límite que usa M04/M11, columnas del PmodCLP. |
+| `LETRA_WIDTH` | 5 bits | Alcanza para 26 códigos (A-Z). |
+
+`bank_addr` y `word`/`bank_word` van con `parameter`/`localparam` calculados a partir de estos
+valores, siguiendo la convención ya usada en M02 y M03, para que si el equipo ajusta el tamaño
+del banco los anchos se recalculen solos.
+
+### Por qué direcciones 1–50 y no 0–49
+
+Con realimentación XOR pura, el estado todo-ceros es un punto fijo: si `REG_LFSR` llegara a
+`000000` se quedaría ahí para siempre, así que el diseño estándar de este tipo de LFSR evita ese
+estado por construcción (sembrando `rst` con un valor no nulo) y por lo tanto nunca lo produce.
+Esto deja disponibles exactamente los valores `1` a `63`, nunca `0`. En vez de restar 1 en algún
+punto del datapath para volver a un rango `0`-`49` y desperdiciar además los valores `51`-`63`,
+se numeran las palabras del banco de `1` a `50` directamente: la dirección `0` simplemente no se
+usa nunca, ni por el LFSR ni por la ROM, y se ahorra un resta.
+
+### REG_LFSR (registro de desplazamiento)
+
+Polinomio de período máximo para 6 bits, taps en las posiciones 6 y 5 (`x^6 + x^5 + 1`):
+
+```
+feedback = REG_LFSR[5] XOR REG_LFSR[4]
+REG_LFSR' = {REG_LFSR[4:0], feedback}
+```
+
+| `rst` | `REG_LFSR'` |
+|---|---|
+| 1 | `6'b000001` (semilla fija no nula) |
+| 0 | `{REG_LFSR[4:0], feedback}` |
+
+Corre en todos los ciclos, sin señal de habilitación: no depende de `state` ni de `pulso_carga`.
+
+### Detección de entrada a CARGA
+
+Mismo detector de flanco que usan M02 y M11 sobre sus propios eventos:
+
+```
+dec_carga      = (state == CARGA)
+pulso_carga    = dec_carga AND (NOT dec_carga_prev)
+```
+
+`pulso_carga` no dispara directamente una captura (a diferencia de M02): solo limpia
+`REG_CARGADO` a 0 para que la partida anterior no deje `valid_word` "heredado" confundiendo a la
+FSM durante el primer ciclo de la CARGA nueva. La condición de captura real es la validez del
+índice, evaluada en cada ciclo mientras `dec_carga = 1`.
+
+### Validez del índice y dirección según `modo`
+
+| `modo` | Condición de validez | `bank_addr` si válido |
+|---|---|---|
+| FACIL (`0`) | `REG_LFSR <= N_PALABRAS` (`<= 50`) | `REG_LFSR[5:0]` |
+| DIFICIL (`1`) | `REG_LFSR[4:0] < N_PALABRAS_DIFICIL` (`< 20`) | `ROM_IDX_DIFICIL[REG_LFSR[4:0]]` |
+
+`ROM_IDX_DIFICIL` es una ROM combinacional de 20 entradas de 6 bits cada una, con las direcciones
+(dentro del mismo banco de 50) de las palabras de 6 letras o más; su contenido concreto depende
+de qué 20 y tantas palabras del banco cumplan esa condición, pendiente de fijar en equipo junto
+con el resto del contenido de `REG_WBank`.
+
+### REG_CARGADO y REG_WORD_SEL (captura)
+
+| `pulso_carga` | `dec_carga` | `válido` (según tabla anterior) | `REG_CARGADO'` | `REG_WORD_SEL'` |
+|---|---|---|---|---|
+| 1 | X | X | `0` | conserva su valor |
+| 0 | 0 | X | conserva su valor | conserva su valor |
+| 0 | 1 | 0 | conserva su valor (`0`, sigue esperando) | conserva su valor |
+| 0 | 1 | 1 | `1` | `bank_word` (captura) |
+
+`valid_word = REG_CARGADO`. `word = REG_WORD_SEL`.
+
+Nótese que `pulso_carga` y la primera evaluación de validez pueden coincidir en el mismo ciclo si
+el LFSR ya está en rango válido justo al entrar a CARGA (la mitad de las veces, aproximadamente,
+en FACIL); la tabla lo resuelve solo porque la fila de `pulso_carga=1` tiene prioridad de lectura
+sobre la de captura, pero el valor de `REG_LFSR` de ese ciclo no se pierde, vuelve a evaluarse un
+ciclo después ya con `pulso_carga=0`. En el peor caso esto cuesta un ciclo de reloj adicional de
+espera, irrelevante frente a la duración de CARGA.
+
+## i) Diagrama esquemático detallado (por compuertas lógicas)
+
+```mermaid
+flowchart LR
+    L5["REG_LFSR[5]"] --> XORF["XOR"]
+    L4["REG_LFSR[4]"] --> XORF
+    XORF --> DSH["D-FF x6<br/>(desplazamiento)"]
+    CLK1(["clk"]) --> DSH
+    DSH --> LOUT["REG_LFSR[5:0]"]
+    LOUT -->|"realimenta [4:0]"| DSH
+
+    STATEIN(["state"]) --> DECC["comparador<br/>dec_carga"]
+    DECC --> DCP["D-FF<br/>dec_carga_prev"]
+    CLK1 --> DCP
+    DECC --> ANDC["AND (prev invertido)"]
+    DCP --> ANDC
+    ANDC --> PULSOC["pulso_carga"]
+
+    LOUT --> CMPF{"CMP ≤ 50"}
+    LOUT -->|"[4:0]"| ROMD["ROM_IDX_DIFICIL"]
+    ROMD --> CMPD{"CMP < 20"}
+
+    MODOIN(["modo"]) --> MUXVAL{{"MUX 2:1<br/>válido"}}
+    CMPF --> MUXVAL
+    CMPD --> MUXVAL
+    MUXVAL --> VALIDO["valido"]
+
+    MODOIN --> MUXADDR{{"MUX 2:1<br/>bank_addr"}}
+    LOUT --> MUXADDR
+    ROMD --> MUXADDR
+    MUXADDR --> BANKADDR(["bank_addr"])
+
+    PULSOC -->|"clear"| REGC["D-FF<br/>REG_CARGADO"]
+    VALIDO -->|"set (si dec_carga)"| REGC
+    DECC --> REGC
+    CLK1 --> REGC
+    REGC --> VALIDWORD(["valid_word"])
+    REGC -->|"enable carga"| REGSEL["D-FF (bus)<br/>REG_WORD_SEL"]
+    CLK1 --> REGSEL
+
+    BANKWORD(["bank_word"]) --> REGSEL
+    REGSEL --> WORDOUT(["word"])
+```
+
+`clk` y `rst` entran a todo registro/contador del módulo aunque no se dibujen en cada elemento,
+por el mismo criterio usado en el resto de los diagramas del proyecto; `rst` fuerza
+`REG_LFSR = 6'b000001` (nunca `0`, ver h), `dec_carga_prev = 0` y `REG_CARGADO = 0`, dejando el
+módulo sin ninguna palabra confirmada hasta el primer CARGA después del reinicio.
 
 ---
 
@@ -2498,27 +2968,253 @@ se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo pr
 
 ---
 
-# M11 - Transmisor UART
+# M11 - Transmisor-UART
 
-## Propósito
+## a) Nombre del módulo
 
-Envía a la aplicación del PC el estado y los resultados de la partida.
+M11_Transmisor-UART
 
-## Entradas
+## b) Diagrama modular
 
-- `modo`: modo actual desde la `FSM`.
-- `letra_state`: resultado de la letra desde `M07_Comparador-letra`.
-- `try`: número de intento desde `M12_Contador-Intentos`.
-- `word_length`: longitud de la palabra escogida.
-- `bus 32b`: acceso al periférico UART.
+```mermaid
+flowchart LR
+    IN_MODO(["modo (de M13_FSM)"]) --> REG_FRAME["REG_TRAMA<br/>registro"]
+    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>cuál trama toca enviar"]
+    DEC_ST --> REG_FRAME
+    IN_LST(["letra_state (de M07)"]) --> REG_FRAME
+    IN_LST --> DEC_ST
+    IN_TRY(["try (de M12)"]) --> REG_FRAME
+    IN_LEN(["word_length (de REG_W)"]) --> REG_FRAME
+    REG_FRAME --> MUX1{{"MUX<br/>selección de campo"}}
+    CNT_BYTE["CONT_BYTE<br/>contador"] --> MUX1
+    MUX1 --> OUT_UART(["modo/letra_state/Resultado/w_word/Intentos (a PERIFERICO_UART)"])
+```
 
-## Salidas
+## c) Objetivo del módulo
 
-- `modo/letra_state/Resultado/w_word/Intentos`: datos transmitidos mediante `PERIFERICO_UART` hacia el PC.
+Ensamblar y transmitir hacia la PC, por UART, la trama de estado del juego, con modo, estado de
+la última letra, resultado, longitud de la palabra e intentos usados
+(`modo/letra_state/Resultado/w_word/Intentos`).
 
-## Funcionamiento
+Decide solo cuándo transmitir. Al ver que `state` entró a JUEGO manda la trama de inicio de
+partida con longitud y modo, con cada `letra_state` nuevo manda el resultado de la letra y los
+intentos restantes, y al entrar a GANO, PERDIO_INTENTOS o PERDIO_TIEMPO manda el resultado final.
+Como los tres estados de fin son distintos, la causa de la derrota sale directo del `state`, sin
+necesidad de una señal aparte.
 
-Construye los mensajes del juego y los transmite a 115200 baudios cuando la `FSM` habilita el envío.
+## d) Entradas
+
+- `clk`, `rst`.
+- `state[2:0]`: estado actual, desde M13_FSM, decide cuál trama toca enviar.
+- `modo`: desde M13_FSM.
+- `letra_state[1:0]`: desde M07_Comparador-letra. Mismo contrato asumido en M02_Generador-Tono,
+  pulso de un solo ciclo (`00`=sin evento, `01`=acierto, `10`=fallo, `11`=repetida), pendiente de
+  confirmar contra la documentación real de M07.
+- `try[2:0]`: intentos fallidos acumulados, desde M12_Contador-Intentos (alcanza hasta 6, según
+  la comparación `CMP = 6` de ese módulo, así que 3 bits bastan).
+- `word_length[3:0]`: longitud de la palabra escogida, desde REG_Palabra-escogida (hasta 15
+  caracteres, acorde al límite de 16 columnas del PmodCLP que ya usa M04).
+- `rdata_i[31:0]`: bus de 32 bits compartido con PERIFERICO_UART, para leer de vuelta `REG_CTRL`
+  y sondear el bit `send` como bandera de ocupado.
+
+## e) Salidas
+
+- `write_enable_o`, `addr_o[ADDR_WIDTH-1:0]`, `wdata_o[31:0]`: hacia el bus de 32 bits compartido
+  con PERIFERICO_UART.
+
+La etiqueta `modo/letra_state/Resultado/w_word/Intentos` del diagrama de nivel03 describe el
+**contenido** que M11 empaqueta dentro de `wdata_o` en distintos momentos, no puertos separados;
+como CONTROL_JUEGO solo tiene un bus de 32 bits hacia los periféricos, todos esos campos viajan
+por las mismas tres señales de arriba, una transacción a la vez.
+
+## f) Explicación de la relación con otros módulos
+
+M11 recibe `state` y `modo` de M13_FSM igual que el resto de los módulos, `letra_state` de
+M07_Comparador-letra, y `try`/`word_length` de M12_Contador-Intentos y de REG_Palabra-escogida
+respectivamente, todos dentro de CONTROL_JUEGO. No le devuelve nada a ninguno de ellos: es un
+módulo de salida pura hacia PERIFERICO_UART, igual que M04_Mostrar-LCD lo es hacia PERIFERICO_LCD.
+
+A diferencia de M02_Generador-Tono, que sí puede perderse un evento sin consecuencias graves
+(un tono que no suena no rompe la partida), M11 no puede permitirse perder ni corromper una
+trama a medio enviar, porque eso deja a la PC con información inconsistente del estado del
+juego. Por eso, a diferencia de M02, acá los eventos que llegan mientras el módulo está ocupado
+enviando una trama anterior no se descartan: quedan retenidos (ver h) hasta que el módulo vuelve
+a `IDLE`.
+
+M11 comparte el bus físico de 32 bits con M04_Mostrar-LCD dentro de CONTROL_JUEGO (ambos hacia
+PERIFERICO_LCD y PERIFERICO_UART respectivamente, que nivel02 describe como el mismo bus de 32
+bits arbitrado por CONTROL_JUEGO). Este documento solo describe el lado de M11 de esa interfaz,
+`write_enable_o`/`addr_o`/`wdata_o`; quién arbitra entre las peticiones de M04 y las de M11 hacia
+el puerto físico único que sale de CONTROL_JUEGO **no tiene módulo asignado todavía** en el
+listado M01-M13, y queda como punto pendiente de la integración en `top.sv`, igual que la
+identificada en la documentación de M13.
+
+## g) Explicación de funcionamiento
+
+M11 es, igual que M04, una pequeña FSM que traduce un evento de un solo pulso en una ráfaga de
+transacciones de bus, aplicada acá al periférico UART en vez de al LCD. A diferencia de M04, el
+periférico UART no expone `busy`/`done` como bits separados; expone un único bit `send` en
+`REG_CTRL` que el software escribe en 1 para pedir el envío y que el hardware limpia a 0 solo
+cuando ya lo aceptó, así que M11 lo usa también como bandera de ocupado, leyéndolo de vuelta por
+`rdata_i` antes de mandar el siguiente byte.
+
+Tres eventos disparan una trama nueva: la entrada a JUEGO (trama de inicio, con `modo` y
+`word_length`), cada `letra_state` nuevo distinto de "sin evento" (trama de resultado de letra,
+con `letra_state` y `try`), y la entrada a un estado de fin (trama de resultado final, con la
+causa tomada directo de `state`). Cada trama es una cabecera de un byte que identifica el tipo,
+seguida de uno o dos bytes de contenido (ver h). Para enviar cada byte, M11 primero lo escribe en
+`REG_DATOS_TX` del periférico, luego pulsa `send` en `REG_CTRL`, y espera a que `send` se lea en
+0 de vuelta antes de repetir con el siguiente byte de la trama.
+
+Como los tres eventos pueden ocurrir mientras M11 todavía está terminando de enviar una trama
+anterior (por ejemplo, si llega un `letra_state` nuevo mientras la trama de inicio de partida
+sigue en tránsito), M11 no los descarta ni los atiende de inmediato: los deja marcados en un
+pequeño juego de banderas "pendiente" y solo arranca la siguiente trama cuando vuelve a `IDLE`,
+con la misma prioridad que ya se usó en M02_Generador-Tono, fin de partida primero, luego
+resultado de letra, luego inicio de partida.
+
+## h) Diseño
+
+### Formato de las tramas
+
+Se define un protocolo binario simple, cabecera de un byte más contenido, para que
+CNT_BYTE/MUX del diagrama modular lo recorran byte a byte:
+
+| Trama | Disparador | Cabecera | Byte 1 | Byte 2 | Longitud (`LEN`) |
+|---|---|---|---|---|---|
+| INICIO | entrada a JUEGO | `"I"` (`0x49`) | `{7'b0, modo}` | `word_length` | 3 |
+| LETRA | `letra_state != 00` | `"L"` (`0x4C`) | `{6'b0, letra_state}` | `try` | 3 |
+| FIN | entrada a GANO/PERDIO_INTENTOS/PERDIO_TIEMPO | `"F"` (`0x46`) | `{5'b0, state}` | — | 2 |
+
+Las cabeceras se escogieron como caracteres ASCII imprimibles únicamente para que sean legibles
+si alguien mira la trama cruda con un monitor serial durante depuración; `APP_PC` las trata como
+bytes, no como texto.
+
+### Detección de disparo y banderas pendientes
+
+Igual que en M02, la entrada a JUEGO y la entrada a un estado de fin son niveles que hay que
+convertir en pulsos de un ciclo con un registro de un ciclo de retardo:
+
+```
+dec_juego  = (state == JUEGO)
+dec_fin    = (state == GANO) | (state == PERDIO_INTENTOS) | (state == PERDIO_TIEMPO)
+pulso_ini  = dec_juego AND (NOT dec_juego_prev)
+pulso_fin  = dec_fin   AND (NOT dec_fin_prev)
+```
+
+A diferencia de M02, estos pulsos (junto con `letra_state != 00`) no disparan directamente la
+carga de `REG_TRAMA`: primero fijan una bandera "pendiente" que se mantiene en alto hasta que el
+módulo la atiende, para no perder el evento si ocurre mientras la FSM está ocupada:
+
+| Señal | Se activa con | Se limpia cuando |
+|---|---|---|
+| `pend_ini` | `pulso_ini` | la FSM la consume (transición `IDLE → LOAD_DATA` para tipo INICIO) |
+| `pend_letra` (+ `pend_letra_val[1:0]`) | `letra_state != 00` | la FSM la consume (transición `IDLE → LOAD_DATA` para tipo LETRA) |
+| `pend_fin` (+ `pend_fin_causa[2:0]`) | `pulso_fin` | la FSM la consume (transición `IDLE → LOAD_DATA` para tipo FIN) |
+
+Si un segundo evento del mismo tipo llega mientras el primero sigue pendiente sin atender (por
+ejemplo, dos `letra_state` nuevos antes de que la FSM vuelva a `IDLE`), el valor capturado se
+sobreescribe con el más reciente y el primero se pierde; es una limitación aceptada dado el
+margen de tiempo que da la velocidad de tecleo humana frente a la duración de una trama de a lo
+sumo 3 bytes a 115200 baudios.
+
+Solo en `IDLE` se decide cuál pendiente atender, con la misma prioridad usada en M02:
+
+| `pend_fin` | `pend_letra` | `pend_ini` | Trama a cargar |
+|---|---|---|---|
+| 1 | X | X | FIN |
+| 0 | 1 | X | LETRA |
+| 0 | 0 | 1 | INICIO |
+| 0 | 0 | 0 | (ninguna, permanece en IDLE) |
+
+### Máquina de estados
+
+Cuatro estados, Moore, misma filosofía que M04_Mostrar-LCD (una orden puntual se traduce en una
+ráfaga de transacciones de bus), adaptada al handshake de un solo bit `send` del UART en vez de
+`busy`/`done` del LCD:
+
+| Estado actual | hay pendiente? | `send` leído (`rdata_i[0]`) | `CNT_BYTE = LEN-1`? | Estado siguiente |
+|---|---|---|---|---|
+| IDLE | 0 | X | X | IDLE |
+| IDLE | 1 | X | X | LOAD_DATA (carga `REG_TRAMA`/`REG_LEN`, `CNT_BYTE=0`, limpia la pendiente elegida) |
+| LOAD_DATA | X | X | X | LOAD_CTRL |
+| LOAD_CTRL | X | X | X | WAIT |
+| WAIT | X | 1 (ocupado) | X | WAIT |
+| WAIT | X | 0 (libre) | 0 | LOAD_DATA (`CNT_BYTE = CNT_BYTE + 1`) |
+| WAIT | X | 0 (libre) | 1 | IDLE |
+
+Codificación de estado (2 bits, `S1 S0`): `IDLE=00`, `LOAD_DATA=01`, `LOAD_CTRL=10`, `WAIT=11`.
+
+`LOAD_DATA` pone en el bus `addr_o = ADDR_UART_TX`, `wdata_o = {24'b0, byte_actual}`,
+`write_enable_o = 1`, donde `byte_actual` sale del MUX de `REG_TRAMA` indexado por `CNT_BYTE`.
+`LOAD_CTRL` pone `addr_o = ADDR_UART_CTRL`, `wdata_o = 32'h1` (bit 0 = `send`, resto en 0),
+`write_enable_o = 1`; se asume que `REG_CTRL` solo actúa sobre los bits escritos como 1 y no
+toca `new_rx` al escribir `send` (misma convención "escribir 1 para pulsar" que usan `start`,
+`clear` y `home` en `REG_CTRL_ESTADO` del LCD), pendiente de confirmar contra el diseño real del
+periférico. `WAIT` no escribe, `write_enable_o = 0`, y solo lee `rdata_i` para el bit `send`.
+
+Los direccionamientos `ADDR_UART_TX` y `ADDR_UART_CTRL` se definen como `localparam` (no
+`parameter`): no son constantes de tiempo que un testbench necesite ajustar para simular más
+rápido, son parte fija del mapa de registros del periférico, así que van fijas en el módulo hasta
+que se conozca el mapa real de PERIFERICO_UART.
+
+## i) Diagrama esquemático detallado (por compuertas lógicas)
+
+```mermaid
+flowchart LR
+    STATEIN(["state"]) --> DECJ["comparador<br/>dec_juego"]
+    STATEIN --> DECF["comparador<br/>dec_fin (OR de 3 igualdades)"]
+    DECJ --> DJP["D-FF<br/>dec_juego_prev"]
+    DECF --> DFP["D-FF<br/>dec_fin_prev"]
+    CLK(["clk"]) --> DJP
+    CLK --> DFP
+    DECJ --> ANDJ["AND (prev invertido)"]
+    DJP --> ANDJ
+    ANDJ --> PULSOI["pulso_ini"]
+    DECF --> ANDF["AND (prev invertido)"]
+    DFP --> ANDF
+    ANDF --> PULSOF["pulso_fin"]
+
+    PULSOI --> LATCHI["latch SR<br/>pend_ini"]
+    LST(["letra_state"]) --> CMPL{"CMP != 00"}
+    CMPL --> LATCHL["latch SR<br/>pend_letra"]
+    PULSOF --> LATCHF["latch SR<br/>pend_fin"]
+
+    LATCHF --> PRIO["codificador de<br/>prioridad<br/>(fin > letra > inicio)"]
+    LATCHL --> PRIO
+    LATCHI --> PRIO
+    PRIO --> SELTRAMA["sel_trama"]
+
+    S1Q["S1 (Q)"] --> NSL["Lógica de<br/>siguiente estado"]
+    S0Q["S0 (Q)"] --> NSL
+    SELTRAMA --> NSL
+    RDATA(["rdata_i[0]<br/>(send)"]) --> NSL
+    BYTEFIN(["CNT_BYTE = LEN-1"]) --> NSL
+    NSL --> D1["D-FF S1"]
+    NSL --> D2["D-FF S0"]
+    CLK --> D1
+    CLK --> D2
+    D1 --> S1Q
+    D2 --> S0Q
+    S1Q --> DEC["DECOD 2:4<br/>(estados)"]
+    S0Q --> DEC
+    DEC --> WEO["write_enable_o"]
+    DEC --> ADDRSEL["MUX addr_o<br/>(TX / CTRL)"]
+    DEC --> CTENBYTE["enable CONT_BYTE"]
+
+    SELTRAMA --> MUXFRAME{{"MUX<br/>REG_TRAMA/REG_LEN"}}
+    MUXFRAME --> RFRAME["D-FF (bus)<br/>REG_TRAMA + REG_LEN"]
+    CLK --> RFRAME
+    RFRAME --> MUXBYTE{{"MUX byte<br/>por CNT_BYTE"}}
+    CTENBYTE --> CNTBYTE["CONT_BYTE"]
+    CLK --> CNTBYTE
+    CNTBYTE --> MUXBYTE
+    MUXBYTE --> WDATAO["wdata_o"]
+```
+
+`clk` y `rst` entran a todo registro/contador del módulo aunque no se dibujen en cada elemento.
+`rst` fuerza el estado a `IDLE`, limpia las tres banderas `pend_*` y pone `write_enable_o = 0`,
+dejando el bus en reposo tras cualquier reinicio a mitad de una trama.
 
 ---
 
