@@ -52,11 +52,12 @@ subgraph "FPGA"
         M07-->|try|M12
         M10-->|letra_in|REG_LI
         M10-->|valid_w|REG_LI
-        REG_LI-->|letra_in|M07
+        REG_LI-->|"letra_in, letra_nueva"|M07
         REG_LI-->|letra_in|M04
-        REG_W-->|word|M07
-        M07-->|letra_state|M11
+        REG_W-->|"word, word_length"|M07
+        M07-->|"letra_state, letra_lista, mascara"|M11
         M07-->|palabra_completa|FSM
+        M07-->|mascara|M04
         M12-->|try|M11
         M12-->|intentos_agotados|FSM
         REG_W-->|word_length|M11
@@ -97,7 +98,7 @@ subgraph "FPGA"
     FSM-->|state|M06
     FSM-->|"state, modo"|M03
     FSM-->|"state, modo"|M08
-    M07-->|letra_state|M02
+    M07-->|"letra_state, letra_lista"|M02
     M08-->|word|REG_W
     M08-->|valid_word|FSM
     M03-->|tiempo_agotado|FSM
@@ -198,6 +199,7 @@ enunciado.
 - `clk`, `rst`.
 - `state`, estado actual, desde M13_FSM, de ahí saca el fin de partida.
 - `letra_state`, resultado de la última letra evaluada, desde M07_Comparador-letra.
+- `letra_lista`, estrobo que marca cuándo `letra_state` es nuevo, desde M07_Comparador-letra.
 
 ### e) Salidas
 
@@ -281,6 +283,8 @@ pinta el que sigue.
 - `state`, estado actual, desde M13_FSM, decide cuál pantalla se pinta.
 - `modo`, desde M13_FSM.
 - `letra_in`, última letra recibida, desde REG_Letra-in.
+- `mascara`, posiciones ya reveladas de la palabra, desde M07_Comparador-letra. Es lo que decide
+  cuáles letras se pintan y cuáles quedan como guion bajo.
 
 ### e) Salidas
 
@@ -380,15 +384,22 @@ Ambos se limpian al ver que `state` entró a CARGA, o sea al empezar cada partid
 
 - `clk`, `rst`.
 - `letra_in`, letra recibida, desde REG_Letra-in.
+- `letra_nueva`, estrobo de un ciclo que avisa que `letra_in` acaba de cargarse, desde
+  REG_Letra-in. Sin él el módulo reevaluaría la misma letra en cada ciclo de reloj.
 - `word`, palabra secreta, desde REG_Palabra-escogida.
+- `word_length`, cuántas posiciones de `word` son válidas, desde REG_Palabra-escogida.
 - `state`, estado actual, desde M13_FSM, limpia máscara y letras usadas al entrar a CARGA.
 
 ### e) Salidas
 
 - `letra_state`, resultado de la comparación (acierto, fallo o repetida), hacia
   M11_Transmisor-UART y M02_Generador-Tono.
+- `letra_lista`, estrobo que acompaña a `letra_state`, hacia M11_Transmisor-UART y
+  M02_Generador-Tono.
+- `mascara`, posiciones de la palabra ya reveladas, hacia M04_Mostrar-LCD y M11_Transmisor-UART.
+  Es el patrón que se pinta en el LCD y el que viaja en la trama hacia la PC.
 - `palabra_completa`, todas las posiciones reveladas, hacia M13_FSM.
-- `try`, pulso de intento evaluado, hacia M12_Contador-Intentos.
+- `try`, pulso de intento fallido, hacia M12_Contador-Intentos.
 
 ## M08: LFSR
 
@@ -534,7 +545,10 @@ necesidad de una señal aparte.
 - `state`, estado actual, desde M13_FSM, decide cuál trama toca enviar.
 - `modo`, desde M13_FSM.
 - `letra_state`, desde M07_Comparador-letra.
-- `try`, número de intentos, desde M12_Contador-Intentos.
+- `letra_lista`, estrobo que marca cuándo `letra_state` es nuevo, desde M07_Comparador-letra.
+- `mascara`, patrón de la palabra revelada, desde M07_Comparador-letra, va en la trama hacia la PC.
+- `try`, fallos acumulados, desde M12_Contador-Intentos. El enunciado pide reportar los intentos
+  restantes, así que la resta `6 - try` se hace acá al componer la trama.
 - `word_length`, longitud de la palabra escogida, desde REG_Palabra-escogida.
 
 ### e) Salidas
