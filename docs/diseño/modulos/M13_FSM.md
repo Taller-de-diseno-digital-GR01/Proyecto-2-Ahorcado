@@ -172,3 +172,67 @@ la partida para que nadie pueda cambiar la dificultad a medio juego.
 
 Los anchos van con `localparam` y `$clog2`, siguiendo la convención del resto del proyecto, aunque
 acá el ancho de estado es fijo en 3 bits por el contrato de codificación.
+
+## i) Diagrama esquemático detallado del diseño
+
+Misma notación de la leyenda de `nivel03.md`, óvalo para puerto externo, rectángulo para registro,
+rombo para comparador, y rectángulo etiquetado para lógica combinacional.
+
+```mermaid
+flowchart LR
+    IN_OK(["ok"]) --> LSE["LOGICA_SIGUIENTE_ESTADO<br/>combinacional"]
+    IN_SEL(["sel"]) --> LSE
+    IN_VW(["valid_word"]) --> LSE
+    IN_PC(["palabra_completa"]) --> LSE
+    IN_IA(["intentos_agotados"]) --> LSE
+    IN_TA(["tiempo_agotado"]) --> LSE
+    IN_FE(["fin_espera"]) --> LSE
+    LSE --> REG_ST["REG_ESTADO<br/>3 flip-flops D"]
+    REG_ST -->|realimentación| LSE
+    REG_ST --> OUT_ST(["state (3 bits)"])
+    REG_ST --> CMP_SEL{"CMP = SELECCION"}
+    CMP_SEL --> AND_M["AND<br/>sel estando en SELECCION"]
+    IN_SEL --> AND_M
+    AND_M -->|toggle| REG_MODO["REG_MODO<br/>flip-flop T"]
+    REG_MODO --> OUT_MODO(["modo"])
+```
+
+`clk` y `rst` entran a los dos registros aunque no se dibujen, por el mismo criterio del resto de
+los diagramas del proyecto.
+
+Del diagrama se lee que no hay lógica entre `REG_ESTADO` y la salida `state`, el registro es la
+salida. Toda la combinacional del módulo está en `LOGICA_SIGUIENTE_ESTADO`, que son tres funciones
+booleanas de diez variables (tres de estado actual y siete de evento), y en la compuerta que
+habilita el conmutado de `modo`.
+
+Sobre el nivel de detalle que pide el método, un esquemático por compuertas dibujado a mano acá no
+aporta nada. Esas tres funciones las sintetiza Vivado con un puñado de LUT, y el número exacto
+depende de la optimización, no del dibujo. El equivalente honesto es el esquemático
+post-síntesis que genera la herramienta, y esa captura es la que va como evidencia en el informe.
+Queda pendiente confirmarle al profesor que ese reemplazo es aceptable, es la misma duda que
+aplica a los doce módulos anteriores.
+
+## j) Diagrama completo de conexiones del diseño
+
+Ningún puerto de este módulo sale de la FPGA, así que no le corresponde ninguna línea del
+`basys3.xdc`. Sus conexiones son las del instanciado dentro de CONTROL_JUEGO:
+
+- `clk`, al reloj global de 100 MHz de la tarjeta.
+- `rst`, a BTN_RST ya sincronizado, el mismo que llega a todos los demás módulos.
+- `sel`, `ok`, desde M09_Botones.
+- `valid_word`, desde M08_LFSR.
+- `palabra_completa`, desde M07_Comparador-letra.
+- `intentos_agotados`, desde M12_Contador-Intentos.
+- `tiempo_agotado`, `fin_espera`, desde M03_Temporizador.
+- `state`, hacia M02, M03, M04, M05, M06, M07, M08, M10, M11, M12 y REG_Letra-in.
+- `modo`, hacia M03, M04, M08 y M11.
+
+Las señales que sí cruzan al mundo físico pertenecen a los módulos del borde, los botones en
+M09_Botones, los displays en M01_Marcador, el LED en M05_Estado, el buzzer en M02_Generador-Tono,
+y los dos periféricos de bus con el PmodCLP y el puente USB-UART. Cada una está documentada en el
+módulo que la maneja.
+
+Acá el punto j) del método de diseño modular pide un diagrama de conexiones eléctricas por chips,
+que está pensado para un montaje con circuitos integrados discretos en protoboard. En un diseño
+que se sintetiza completo dentro de una sola Artix-7 no hay chips que alambrar, y la lista de
+arriba es la traducción razonable. Es la otra mitad de la consulta pendiente con el profesor.
