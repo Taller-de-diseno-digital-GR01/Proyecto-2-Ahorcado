@@ -46,3 +46,76 @@ de acordar con el equipo porque toca el diagrama de tercer nivel y el módulo de
 
 ---
 
+## g) Explicación de funcionamiento
+
+El contador arranca en cero y se limpia cada vez que el sistema pasa por CARGA, que es el estado
+en que se escoge la palabra de la partida nueva. No hace falta una señal de limpieza dedicada
+desde la FSM, el paso por ese estado ya es la señal.
+
+Durante la partida, cada pulso `try` suma uno. Al llegar a seis se levanta `intentos_agotados` y
+la FSM se lleva el sistema a PERDIO_INTENTOS. El contador se satura ahí, no sigue contando ni da
+la vuelta a cero, aunque en la práctica no debería recibir más pulsos porque la partida ya
+terminó y `REG_Letra-in` deja de cargar letras al salir de JUEGO.
+
+`rst` lo devuelve a cero igual que la limpieza por estado, lo que hace que BTN_RST deje la cuenta
+en un estado consistente sin importar en qué momento de la partida se presione.
+
+---
+
+## h) Diseño
+
+### Ancho del contador
+
+La cuenta va de 0 a 6, así que necesita tres bits:
+
+$$
+ancho = \lceil \log_2(6+1) \rceil = 3
+$$
+
+Se describe con `localparam` y `$clog2` siguiendo la convención del proyecto, con el máximo de
+intentos como parámetro del módulo en vez de un seis fijo en la lógica. Así el valor sale del
+mismo lugar en el que está documentado, y probar la partida con tres intentos en simulación no
+obliga a tocar la descripción.
+
+### Contador
+
+Tabla de verdad del contador, en orden de prioridad descendente, que es el mismo orden de los
+`if / else if / else` de la implementación:
+
+| Condición                        | `cuenta'`     |
+| -------------------------------- | ------------- |
+| `rst = 1`                        | `000`         |
+| `state = CARGA`                  | `000`         |
+| `try = 1` y `cuenta < 6`         | `cuenta + 1`  |
+| resto                            | `cuenta`      |
+
+La condición `cuenta < 6` de la tercera fila es la que satura el contador. Sin ella, un pulso
+extra lo llevaría a 7 y el siguiente lo devolvería a 0, apagando `intentos_agotados` justo después
+de haberlo levantado.
+
+El reset gana sobre la limpieza por estado, y las dos ganan sobre el incremento. Ese orden importa
+para el caso en que llegue un `try` en el mismo ciclo en que el sistema entra a CARGA, donde la
+cuenta tiene que quedar en cero y no en uno.
+
+### Bandera de agotados
+
+$$
+intentos\_agotados = (cuenta = 6)
+$$
+
+| `cuenta`        | `intentos_agotados` | Situación |
+| --------------- | ------------------- | --------- |
+| `000`           | `0`                 | partida recién empezada, seis intentos disponibles |
+| `001` a `101`   | `0`                 | quedan intentos |
+| `110`           | `1`                 | seis fallos, derrota por intentos |
+| `111`           | `1`                 | no alcanzable, el contador satura en `110` |
+
+La bandera es combinacional a partir del registro, no un registro aparte. Así se levanta en el
+mismo ciclo en que el contador llega a seis, sin un ciclo de atraso que dejaría entrar una letra
+más antes de que la FSM reaccione.
+
+La fila `111` se documenta por completitud de la tabla. Con la saturación del contador ese valor
+no se alcanza, y de todas formas la comparación por mayor o igual lo dejaría del lado correcto.
+
+---
+
