@@ -9,7 +9,7 @@ PC -->|"RX serial"| PERIFERICO_UART
 
 
 
-LETRA-..->PC
+LETRA -.-> PC
 subgraph "PC"
     App["App"]
 
@@ -17,7 +17,7 @@ end
 
 subgraph "FPGA"
 
-    subgraph "PERIFERICO_UART"[PERIFERICO_UART \n TX/RX 115200 baud]
+    subgraph PERIFERICO_UART["PERIFERICO_UART<br/>TX/RX 115200 baud"]
         REG_CTRL["REG_CTRL\nsend(0,WC) new_rx(1,RW)"]
         REG_DATOS_TX["REG_DATOS_TX"]
         REG_DATOS_RX["REG_DATOS_RX"]
@@ -73,7 +73,7 @@ subgraph "FPGA"
         M02["M02_Generador-Tono"]
         M05["M05_Estado"]
         M06["M06_Ganadas"]
-        M09["M09_Antirrebote"]
+        M09["M09_Botones"]
 
         M06-->|num_ganadas|M01
     end
