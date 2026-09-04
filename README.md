@@ -1,5 +1,16 @@
 # Proyecto 2, Ahorcado FPGA/PC — EL3313 Taller de Diseño Digital
 
+ Profesor:
+  Dr.-Ing. Jeferson González-Gómez, Ing. Rolen Coto Calderón
+
+Integrantes:
+- Carlos Castro Villegas
+- Jefferson Chinchilla Quesada
+- Mattio Coghi Quirós
+- Nicolás Mena Valerio
+
+II Semestre 2026
+ 
 ## Estructura del repo
 
 - `docs/diseño/` tiene el planteamiento del diseño, las specs por módulo y los diagramas.
