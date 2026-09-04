@@ -178,3 +178,59 @@ que ninguna rama quede sin asignar.
 
 ---
 
+## i) Diagrama esquemático detallado del diseño
+
+```mermaid
+flowchart LR
+    LETRA(["letra_in"]) --> CMP_POS["CMP_POSICIONES<br/>12 comparadores"]
+    WORD(["word"]) --> CMP_POS
+    LEN(["word_length"]) --> CMP_POS
+    CMP_POS -->|"coincide[11:0]"| OR_RED["OR<br/>reducción"]
+    CMP_POS -->|"coincide[11:0]"| OR_MASC["OR<br/>actualiza máscara"]
+
+    LETRA --> DEC_IDX["DECOD_INDICE<br/>letra_in - 0x41"]
+    DEC_IDX --> REG_US["REG_USADAS<br/>26 flip-flops"]
+    REG_US -->|"ya_usada"| LOG_EV["LOGICA_EVALUACION<br/>combinacional"]
+    OR_RED -->|"hay_coincidencia"| LOG_EV
+    NUEVA(["letra_nueva"]) --> LOG_EV
+
+    LOG_EV --> REG_LS["REG_LETRA_STATE<br/>registro"]
+    REG_LS --> OUT_LS(["letra_state[1:0]"])
+    LOG_EV --> OUT_LL(["letra_lista"])
+    LOG_EV --> OUT_TRY(["try"])
+    LOG_EV -->|habilita| OR_MASC
+
+    OR_MASC --> REG_MASC["REG_MASCARA<br/>12 flip-flops"]
+    REG_MASC --> OR_MASC
+    LEN --> REG_MASC
+    ST(["state"]) --> REG_MASC
+    ST --> REG_US
+    REG_MASC --> OUT_MASC(["mascara"])
+    REG_MASC --> AND_FIN["AND<br/>reducción de 12 bits"]
+    AND_FIN --> OUT_COMP(["palabra_completa"])
+```
+
+`clk` y `rst` entran a los tres registros aunque no se dibujen, por el mismo criterio del resto de
+los diagramas del proyecto.
+
+---
+
+## j) Diagrama completo de conexiones del diseño
+
+Ningún puerto de este módulo sale de la FPGA, así que no le corresponde ninguna línea del
+`basys3.xdc`. Sus conexiones dentro de `CONTROL_JUEGO` son:
+
+- `clk`, al reloj global de 100 MHz.
+- `rst`, a BTN_RST ya sincronizado.
+- `letra_in`, `letra_nueva`, desde `REG_Letra-in`.
+- `word`, `word_length`, desde `REG_Palabra-escogida`.
+- `state`, desde `M13_FSM`.
+- `letra_state`, `letra_lista`, hacia `M02_Generador-Tono` y `M11_Transmisor-UART`.
+- `mascara`, hacia `M04_Mostrar-LCD` y `M11_Transmisor-UART`.
+- `palabra_completa`, hacia `M13_FSM`.
+- `try`, hacia `M12_Contador-Intentos`.
+
+El punto j) del método de diseño modular pide un diagrama de conexiones eléctricas por chips, que
+aplica a un montaje con circuitos integrados discretos. En un diseño que se sintetiza completo
+dentro de la Artix-7 la traducción razonable es esta lista de puertos del instanciado, y queda
+pendiente confirmárselo al profesor.
