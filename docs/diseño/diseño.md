@@ -3,8 +3,7 @@
 Este archivo junta, en un solo documento y en orden, todo el diseño modular del proyecto: los
 tres niveles de diagramas (`docs/diseño/diagramas/nivel01.md`, `nivel02.md`, `nivel03.md`) y el
 diseño detallado de cada uno de los trece módulos (`docs/diseño/modulos/M01_*.md` a
-`M13_FSM.md`). Es una copia de conveniencia para leer todo seguido; la fuente de verdad de cada
-sección sigue siendo su archivo individual, y ese es el que hay que editar.
+`M13_FSM.md`).
 
 ---
 
