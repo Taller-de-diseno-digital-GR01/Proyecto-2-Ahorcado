@@ -43,11 +43,12 @@ subgraph "FPGA"
         M07-->|try|M12
         M10-->|letra_in|REG_LI
         M10-->|valid_w|REG_LI
-        REG_LI-->|letra_in|M07
+        REG_LI-->|"letra_in, letra_nueva"|M07
         REG_LI-->|letra_in|M04
-        REG_W-->|word|M07
-        M07-->|letra_state|M11
+        REG_W-->|"word, word_length"|M07
+        M07-->|"letra_state, letra_lista, mascara"|M11
         M07-->|palabra_completa|FSM
+        M07-->|mascara|M04
         M12-->|try|M11
         M12-->|intentos_agotados|FSM
         REG_W-->|word_length|M11
@@ -88,7 +89,7 @@ subgraph "FPGA"
     FSM-->|state|M06
     FSM-->|"state, modo"|M03
     FSM-->|"state, modo"|M08
-    M07-->|letra_state|M02
+    M07-->|"letra_state, letra_lista"|M02
     M08-->|word|REG_W
     M08-->|valid_word|FSM
     M03-->|tiempo_agotado|FSM

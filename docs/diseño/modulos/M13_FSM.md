@@ -119,6 +119,36 @@ van los `if / else if / else` de la implementación:
 | PERDIO_TIEMPO `101` | ninguna | PERDIO_TIEMPO `101` | |
 | `110`, `111` | cualquiera | SELECCION `000` | estados no usados |
 
+### Registro de modo
+
+`modo` es el otro elemento de memoria del módulo, un solo bit que vive aparte del registro de
+estado. Las transiciones no lo tocan, lo mueve únicamente BTN_SEL:
+
+| Condición (prioridad descendente) | `modo'`  |
+| --------------------------------- | -------- |
+| `rst = 1`                         | `0`      |
+| `state = SELECCION` y `sel = 1`   | `NOT modo` |
+| resto                             | `modo`   |
+
+La segunda fila es la que congela la dificultad durante la partida. Fuera de SELECCION el pulso
+`sel` no hace nada, así que un botonazo accidental a media partida no puede cambiarle el
+temporizador ni el banco de palabras a una partida ya empezada.
+
+Significado del bit y valores que dispara en los otros módulos:
+
+| `modo` | Dificultad | Palabras del banco        | Tiempo de partida |
+| ------ | ---------- | ------------------------- | ----------------- |
+| `0`    | FACIL      | cualquiera, 4 a 12 letras | 60 s              |
+| `1`    | DIFICIL    | solo de 6 letras o más    | 45 s              |
+
+Los tiempos son los sugeridos por el enunciado y se mantienen tal cual. La relación que sí es
+obligatoria es que difícil tenga menos tiempo que fácil, y 45 contra 60 la cumple. La
+justificación de los valores concretos es que en modo difícil la palabra es más larga, entre 6 y
+12 letras, así que hay más posiciones que descubrir con menos tiempo, y ahí está la dificultad
+real del modo, no solo en el reloj.
+
+Después del reset el sistema arranca en FACIL, que es el modo que se muestra primero en el LCD.
+
 ### Prioridades y casos de borde
 
 En SELECCION, `ok` va antes que `sel` por si alguien presiona los dos botones en el mismo ciclo.
