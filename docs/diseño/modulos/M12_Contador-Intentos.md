@@ -119,3 +119,42 @@ no se alcanza, y de todas formas la comparación por mayor o igual lo dejaría d
 
 ---
 
+## i) Diagrama esquemático detallado del diseño
+
+```mermaid
+flowchart LR
+    TRY(["try (de M07)"]) --> LOG_EN["AND<br/>habilita incremento"]
+    CNT["CONT_INTENTOS<br/>3 flip-flops"] --> CMP_MAX{"CMP < 6<br/>no saturado"}
+    CMP_MAX --> LOG_EN
+    LOG_EN --> SUM["SUMADOR<br/>+1"]
+    CNT --> SUM
+    SUM --> CNT
+
+    ST(["state"]) --> DEC_ST["DECOD_ESTADO<br/>state = CARGA"]
+    DEC_ST -->|limpia| CNT
+
+    CNT --> CMP_FIN{"CMP = 6"}
+    CMP_FIN --> OUT_AG(["intentos_agotados (a M13_FSM)"])
+    CNT --> OUT_TRY(["try (a M11)"])
+```
+
+`clk` y `rst` entran a `CONT_INTENTOS` aunque no se dibujen, por el mismo criterio del resto de
+los diagramas del proyecto.
+
+---
+
+## j) Diagrama completo de conexiones del diseño
+
+Ningún puerto de este módulo sale de la FPGA, así que no le corresponde ninguna línea del
+`basys3.xdc`. Conexiones del instanciado dentro de `CONTROL_JUEGO`:
+
+- `clk`, al reloj global de 100 MHz.
+- `rst`, a BTN_RST ya sincronizado.
+- `try` de entrada, desde `M07_Comparador-letra`.
+- `state`, desde `M13_FSM`.
+- `intentos_agotados`, hacia `M13_FSM`.
+- `try` de salida, hacia `M11_Transmisor-UART`.
+
+Como en los demás módulos, el diagrama de conexiones por chips que pide el método corresponde a un
+montaje con integrados discretos, y en este diseño la traducción es la lista de puertos del
+instanciado. Falta confirmarlo con el profesor.
