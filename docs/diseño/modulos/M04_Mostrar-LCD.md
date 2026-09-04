@@ -50,7 +50,7 @@ envía al LCD cuando `show` lo solicita. En el fondo, M04 es una pequeño FSM qu
 transacciones de bus hacia `PERIFERICO_LCD`. Al llegar `show`, primero pulsa `home`/`clear` en
 `REG_CTRL_ESTADO` para posicionar el cursor; luego, byte por byte, escribe cada carácter del
 mensaje en `REG_DATOS` y pulsa `start` con `rs=1` (dato, no comando); después de cada byte
-espera a que `done` se levante (el HD44780 terminó) antes de enviar el siguiente. El mensaje
+espera a que `done` se levante antes de enviar el siguiente. El mensaje
 depende del contexto: en selección de modo es un texto fijo ("MODO: FACIL"/"MODO: DIFICIL"); en
 partida, es la letra recién recibida superpuesta sobre la palabra en curso.
 

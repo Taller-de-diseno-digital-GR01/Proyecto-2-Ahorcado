@@ -26,7 +26,7 @@ flowchart LR
 ## c) Objetivo del módulo
 
 Controla el tiempo disponible para la partida. Al recibir `start`, carga el tiempo inicial según
-el `modo` recibido y arranca la cuenta regresiva; al llegar a cero, avisa a la `FSM` mediante
+el `modo` recibido y arranca la cuenta regresiva; al llegar a cero, avisa a la `FSM` mediante una señal
 `tiempo_agotado` y entrega el tiempo restante en todo momento a `M01_Marcador` para su
 despliegue.
 
