@@ -13,4 +13,16 @@ module contador_intentos #(parameter MAX_INTENTOS = 6) ( // el enunciado fija 6 
 
   logic [$clog2(MAX_INTENTOS+1)-1:0] cuenta;
 
+  // El paso por CARGA es la señal de partida nueva, no hace falta que la fsm mande un clear aparte
+  always_ff @(posedge clk) begin
+    if (rst || i_state == CARGA) begin // el rst gana aunque llegue un try en el mismo ciclo
+      cuenta <= 0;
+    end
+    else if (i_try) begin
+      cuenta <= cuenta + 1;
+    end
+  end
+
+  assign o_intentos = cuenta;
+
 endmodule
