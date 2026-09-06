@@ -81,4 +81,8 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
     end
   end
 
+  // 4. Salidas continuas
+  assign o_mascara = mascara;
+  assign o_palabra_completa = &mascara; // se levanta el mismo ciclo en que la última letra revela la última posición
+
 endmodule
