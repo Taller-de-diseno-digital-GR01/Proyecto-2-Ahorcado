@@ -36,4 +36,27 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
 
   assign hay_coincidencia = |coincide;
 
+  // 2. Lo que el módulo se acuerda de la partida, cuáles posiciones ya se revelaron y cuáles letras ya llegaron
+  logic [WORD_MAXLEN-1:0] mascara;
+  logic [25:0] usadas; // un bit por letra del alfabeto, el receptor ya filtró A-Z así que el índice nunca se sale
+  logic ya_usada;
+
+  assign ya_usada = usadas[codigo];
+
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      mascara <= '0;
+      usadas <= '0;
+    end
+    // La máscara arranca con el relleno en unos para que el and de palabra completa sirva igual con 4 letras que con 12
+    else if (i_state == CARGA) begin
+      mascara <= relleno;
+      usadas <= '0;
+    end
+    else if (i_letra_nueva && !ya_usada) begin
+      usadas[codigo] <= 1'b1;
+      mascara <= mascara | coincide; // si la letra falló, coincide viene en ceros y esto no cambia nada
+    end
+  end
+
 endmodule
