@@ -1,4 +1,3 @@
-// Ver docs/diseño/modulos/M10_Receptor-UART.md
 module receptor_uart (
   input logic clk,
   input logic rst,
