@@ -24,19 +24,28 @@ module receptor_uart (
   localparam LIMPIA = 2'b10;
 
   logic [1:0] estado;
-  logic new_rx;
+  logic new_rx, en_rango;
 
   assign new_rx = i_rdata[BIT_NEW_RX]; // solo vale mientras o_addr esté apuntando al registro de control
+  assign en_rango = (i_rdata[7:0] >= 8'h41) && (i_rdata[7:0] <= 8'h5A); // A-Z, nada de traducir minúsculas
 
   // 1. Sondeo del periférico, tres ciclos por byte contra los 87 us que tarda uno a 115200 baudios
   always_ff @(posedge clk) begin
+    o_valid_w <= 1'b0;
     if (rst) begin
       estado <= ESPERA;
+      o_letra <= 8'h00;
     end
     else begin
       case (estado)
         ESPERA: if (new_rx) estado <= LEE;
-        LEE: estado <= LIMPIA;
+        // Acá se botan las letras que llegan en selección de modo o mostrando resultado, sin tocar la partida
+        LEE: begin
+          estado <= LIMPIA;
+          o_letra <= i_rdata[7:0];
+          o_valid_w <= en_rango && (i_state == JUEGO);
+        end
+        // Se limpia new_rx pase lo que pase con el byte, si no el receptor queda trabado y no recibe nunca más
         LIMPIA: estado <= ESPERA;
         default: estado <= ESPERA;
       endcase
