@@ -43,4 +43,15 @@ module receptor_uart (
     end
   end
 
+  // 2. Salidas hacia el bus, el dato del periférico es combinacional respecto a o_addr
+  always_comb begin
+    o_addr = ADDR_CTRL;
+    o_write_enable = 1'b0;
+    o_wdata = 32'b0; // escribir ceros baja new_rx y de paso no pulsa el send del transmisor
+    case (estado)
+      LEE: o_addr = ADDR_DATOS_RX;
+      LIMPIA: o_write_enable = 1'b1;
+    endcase
+  end
+
 endmodule
