@@ -1,4 +1,3 @@
-// Ver docs/diseño/modulos/M12_Contador-Intentos.md
 module contador_intentos #(parameter MAX_INTENTOS = 6) ( // el enunciado fija 6 letras incorrectas
   input logic clk,
   input logic rst,
