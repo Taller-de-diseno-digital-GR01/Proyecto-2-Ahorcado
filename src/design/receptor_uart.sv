@@ -24,5 +24,23 @@ module receptor_uart (
   localparam LIMPIA = 2'b10;
 
   logic [1:0] estado;
+  logic new_rx;
+
+  assign new_rx = i_rdata[BIT_NEW_RX]; // solo vale mientras o_addr esté apuntando al registro de control
+
+  // 1. Sondeo del periférico, tres ciclos por byte contra los 87 us que tarda uno a 115200 baudios
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      estado <= ESPERA;
+    end
+    else begin
+      case (estado)
+        ESPERA: if (new_rx) estado <= LEE;
+        LEE: estado <= LIMPIA;
+        LIMPIA: estado <= ESPERA;
+        default: estado <= ESPERA;
+      endcase
+    end
+  end
 
 endmodule
