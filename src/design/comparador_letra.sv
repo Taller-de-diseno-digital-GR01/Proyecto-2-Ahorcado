@@ -59,4 +59,26 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
     end
   end
 
+  // 3. Evaluación de la letra, sale un ciclo después del estrobo, alineada con la actualización de la máscara
+  always_ff @(posedge clk) begin
+    o_letra_lista <= 1'b0;
+    o_try <= 1'b0;
+    if (rst) begin
+      o_letra_state <= FALLO;
+    end
+    else if (i_letra_nueva) begin
+      o_letra_lista <= 1'b1; // la repetida también avisa, si no la pc se queda sin respuesta y vuelve a escribir
+      if (ya_usada) begin
+        o_letra_state <= REPETIDA; // no gasta intento ni toca el temporizador, es lo que pide el enunciado
+      end
+      else if (hay_coincidencia) begin
+        o_letra_state <= ACIERTO;
+      end
+      else begin
+        o_letra_state <= FALLO;
+        o_try <= 1'b1;
+      end
+    end
+  end
+
 endmodule
