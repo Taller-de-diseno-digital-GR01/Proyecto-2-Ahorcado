@@ -24,5 +24,6 @@ module contador_intentos #(parameter MAX_INTENTOS = 6) ( // el enunciado fija 6 
   end
 
   assign o_intentos = cuenta;
+  assign o_intentos_agotados = (cuenta >= MAX_INTENTOS); // combinacional para que la fsm lo vea el mismo ciclo del sexto fallo
 
 endmodule
