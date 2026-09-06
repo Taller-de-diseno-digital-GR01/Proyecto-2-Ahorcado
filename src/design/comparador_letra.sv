@@ -1,4 +1,3 @@
-// Ver docs/diseño/modulos/M07_Comparador-letra.md
 module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5) (
   input logic clk,
   input logic rst,
