@@ -18,7 +18,7 @@ module contador_intentos #(parameter MAX_INTENTOS = 6) ( // el enunciado fija 6 
     if (rst || i_state == CARGA) begin // el rst gana aunque llegue un try en el mismo ciclo
       cuenta <= 0;
     end
-    else if (i_try) begin
+    else if (i_try && cuenta < MAX_INTENTOS) begin // satura, sin esto el try de más devuelve la cuenta a 0
       cuenta <= cuenta + 1;
     end
   end
