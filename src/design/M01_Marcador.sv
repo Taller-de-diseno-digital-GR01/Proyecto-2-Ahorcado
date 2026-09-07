@@ -1,0 +1,239 @@
+`timescale 1ns/1ps
+
+// ============================================================
+// M01_Marcador
+// Proyecto: Ahorcado - Basys 3
+//
+// Entradas:
+//   time         -> valor proveniente de M03_Temporizador
+//   num_ganadas  -> valor proveniente de M06_Ganadas
+//
+// Salidas:
+//   seg[6:0] -> segmentos abcdefg, activos en bajo
+//   an[3:0]  -> selección de dígito, activa en bajo
+//   dp       -> punto decimal, apagado
+// ============================================================
+
+module M01_Marcador #(
+    parameter REFRESH_BITS = 18
+)(
+    input  logic       clk,
+    input  logic       rst,
+    input  logic [6:0] time,
+    input  logic [6:0] num_ganadas,
+
+    output logic [6:0] seg,
+    output logic [3:0] an,
+    output logic       dp
+);
+
+    logic [6:0] time_reg;
+    logic [6:0] ganadas_reg;
+    logic [1:0] selector;
+    logic [3:0] digito_bcd;
+
+    // Registro del tiempo
+    reg_tiempo REG_TIEMPO (
+        .clk      (clk),
+        .rst      (rst),
+        .time_in  (time),
+        .time_out (time_reg)
+    );
+
+    // Registro de partidas ganadas
+    reg_ganadas REG_GANADAS (
+        .clk             (clk),
+        .rst             (rst),
+        .num_ganadas_in  (num_ganadas),
+        .num_ganadas_out (ganadas_reg)
+    );
+
+    // Contador usado para refrescar los displays
+    contador_refresco #(
+        .REFRESH_BITS(REFRESH_BITS)
+    ) CONT_REFRESCO (
+        .clk      (clk),
+        .rst      (rst),
+        .selector (selector)
+    );
+
+    // Selección del dígito que se muestra
+    selector_digito SELECTOR_DIGITO (
+        .time_value  (time_reg),
+        .num_ganadas (ganadas_reg),
+        .selector    (selector),
+        .digito_bcd  (digito_bcd),
+        .an          (an)
+    );
+
+    // Decodificación BCD a 7 segmentos
+    decod_bcd_7seg DECODIFICADOR (
+        .bcd (digito_bcd),
+        .seg (seg)
+    );
+
+    // Punto decimal apagado
+    assign dp = 1'b1;
+
+endmodule
+
+
+// ============================================================
+// Registro del tiempo
+// ============================================================
+module reg_tiempo (
+    input  logic       clk,
+    input  logic       rst,
+    input  logic [6:0] time_in,
+    output logic [6:0] time_out
+);
+
+    always_ff @(posedge clk) begin
+        if (rst)
+            time_out <= 7'd0;
+        else
+            time_out <= time_in;
+    end
+
+endmodule
+
+
+// ============================================================
+// Registro de partidas ganadas
+// ============================================================
+module reg_ganadas (
+    input  logic       clk,
+    input  logic       rst,
+    input  logic [6:0] num_ganadas_in,
+    output logic [6:0] num_ganadas_out
+);
+
+    always_ff @(posedge clk) begin
+        if (rst)
+            num_ganadas_out <= 7'd0;
+        else
+            num_ganadas_out <= num_ganadas_in;
+    end
+
+endmodule
+
+
+// ============================================================
+// Contador de refresco
+// ============================================================
+module contador_refresco #(
+    parameter REFRESH_BITS = 18
+)(
+    input  logic       clk,
+    input  logic       rst,
+    output logic [1:0] selector
+);
+
+    logic [REFRESH_BITS-1:0] contador;
+
+    always_ff @(posedge clk) begin
+        if (rst)
+            contador <= '0;
+        else
+            contador <= contador + 1'b1;
+    end
+
+    assign selector = contador[REFRESH_BITS-1 -: 2];
+
+endmodule
+
+
+// ============================================================
+// Selector de dígito
+//
+// AN0 -> unidades de partidas ganadas
+// AN1 -> decenas de partidas ganadas
+// AN2 -> unidades del tiempo
+// AN3 -> decenas del tiempo
+// ============================================================
+module selector_digito (
+    input  logic [6:0] time_value,
+    input  logic [6:0] num_ganadas,
+    input  logic [1:0] selector,
+
+    output logic [3:0] digito_bcd,
+    output logic [3:0] an
+);
+
+    logic [3:0] time_decenas;
+    logic [3:0] time_unidades;
+    logic [3:0] win_decenas;
+    logic [3:0] win_unidades;
+
+    always_comb begin
+
+        time_decenas  = time_value / 10;
+        time_unidades = time_value % 10;
+
+        win_decenas   = num_ganadas / 10;
+        win_unidades  = num_ganadas % 10;
+
+        digito_bcd = 4'd0;
+        an         = 4'b1111;
+
+        case (selector)
+
+            2'b00: begin
+                digito_bcd = win_unidades;
+                an         = 4'b1110;
+            end
+
+            2'b01: begin
+                digito_bcd = win_decenas;
+                an         = 4'b1101;
+            end
+
+            2'b10: begin
+                digito_bcd = time_unidades;
+                an         = 4'b1011;
+            end
+
+            2'b11: begin
+                digito_bcd = time_decenas;
+                an         = 4'b0111;
+            end
+
+            default: begin
+                digito_bcd = 4'd0;
+                an         = 4'b1111;
+            end
+
+        endcase
+    end
+
+endmodule
+
+
+// ============================================================
+// Decodificador BCD -> 7 segmentos
+//
+// seg[6:0] = abcdefg
+// Salidas activas en bajo
+// ============================================================
+module decod_bcd_7seg (
+    input  logic [3:0] bcd,
+    output logic [6:0] seg
+);
+
+    always_comb begin
+        case (bcd)
+            4'd0: seg = 7'b0000001;
+            4'd1: seg = 7'b1001111;
+            4'd2: seg = 7'b0010010;
+            4'd3: seg = 7'b0000110;
+            4'd4: seg = 7'b1001100;
+            4'd5: seg = 7'b0100100;
+            4'd6: seg = 7'b0100000;
+            4'd7: seg = 7'b0001111;
+            4'd8: seg = 7'b0000000;
+            4'd9: seg = 7'b0000100;
+            default: seg = 7'b1111111;
+        endcase
+    end
+
+endmodule
