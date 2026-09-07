@@ -16,6 +16,9 @@ module tb_contador_intentos;
   logic [ANCHO-1:0] o_intentos_tb;
   logic o_intentos_agotados_tb;
 
+  int pruebas = 0;
+  int errores = 0;
+
   contador_intentos #(.MAX_INTENTOS(MAX_INTENTOS)) dut (
     .clk(clk_tb),
     .rst(rst_tb),
@@ -33,6 +36,21 @@ module tb_contador_intentos;
     #1;
   endtask
 
+  task automatic chequear(input string nombre,
+                          input logic [ANCHO-1:0] esperado_intentos,
+                          input logic esperado_agotados);
+    pruebas++;
+    if (o_intentos_tb === esperado_intentos && o_intentos_agotados_tb === esperado_agotados) begin
+      $display("  ok     %s", nombre);
+    end
+    else begin
+      errores++;
+      $display("  FALLO  %s", nombre);
+      $display("         o_intentos esperaba %0d y dio %0d, o_intentos_agotados esperaba %0b y dio %0b",
+               esperado_intentos, o_intentos_tb, esperado_agotados, o_intentos_agotados_tb);
+    end
+  endtask
+
   initial begin
     $dumpfile("tb_contador_intentos.vcd");
     $dumpvars(0, tb_contador_intentos);
@@ -44,10 +62,17 @@ module tb_contador_intentos;
     i_try_tb = 1'b0;
     i_state_tb = JUEGO;
 
-    ciclo();
-    rst_tb = 1'b0;
-    repeat (4) ciclo();
+    $display("== tb_contador_intentos, MAX_INTENTOS=%0d ==", MAX_INTENTOS);
 
+    ciclo();
+    chequear("el reset deja la cuenta en cero", 0, 1'b0);
+    rst_tb = 1'b0;
+
+    repeat (4) ciclo();
+    chequear("sin pulsos de fallo la cuenta no se mueve", 0, 1'b0);
+
+    $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
+    if (errores != 0) $fatal(1, "tb_contador_intentos termino con fallos");
     $finish;
   end
 
