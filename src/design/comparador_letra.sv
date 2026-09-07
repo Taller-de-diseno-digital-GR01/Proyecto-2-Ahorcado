@@ -66,7 +66,7 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
     if (rst) begin
       o_letra_state <= FALLO;
     end
-    else if (i_letra_nueva) begin
+    else if (i_letra_nueva && i_state != CARGA) begin // en CARGA la mascara ignora la letra, la evaluacion tiene que ignorarla igual
       o_letra_lista <= 1'b1; // la repetida también avisa, si no la pc se queda sin respuesta y vuelve a escribir
       if (ya_usada) begin
         o_letra_state <= REPETIDA; // no gasta intento ni toca el temporizador, es lo que pide el enunciado
