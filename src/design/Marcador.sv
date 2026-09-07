@@ -2,7 +2,6 @@
 
 // ============================================================
 // M01_Marcador
-// Proyecto: Ahorcado - Basys 3
 //
 // Entradas:
 //   time         -> valor proveniente de M03_Temporizador
@@ -32,7 +31,6 @@ module M01_Marcador #(
     logic [1:0] selector;
     logic [3:0] digito_bcd;
 
-    // Registro del tiempo
     reg_tiempo REG_TIEMPO (
         .clk      (clk),
         .rst      (rst),
@@ -40,7 +38,6 @@ module M01_Marcador #(
         .time_out (time_reg)
     );
 
-    // Registro de partidas ganadas
     reg_ganadas REG_GANADAS (
         .clk             (clk),
         .rst             (rst),
@@ -48,7 +45,6 @@ module M01_Marcador #(
         .num_ganadas_out (ganadas_reg)
     );
 
-    // Contador usado para refrescar los displays
     contador_refresco #(
         .REFRESH_BITS(REFRESH_BITS)
     ) CONT_REFRESCO (
@@ -57,7 +53,6 @@ module M01_Marcador #(
         .selector (selector)
     );
 
-    // Selección del dígito que se muestra
     selector_digito SELECTOR_DIGITO (
         .time_value  (time_reg),
         .num_ganadas (ganadas_reg),
@@ -66,7 +61,6 @@ module M01_Marcador #(
         .an          (an)
     );
 
-    // Decodificación BCD a 7 segmentos
     decod_bcd_7seg DECODIFICADOR (
         .bcd (digito_bcd),
         .seg (seg)
@@ -78,9 +72,6 @@ module M01_Marcador #(
 endmodule
 
 
-// ============================================================
-// Registro del tiempo
-// ============================================================
 module reg_tiempo (
     input  logic       clk,
     input  logic       rst,
@@ -98,9 +89,6 @@ module reg_tiempo (
 endmodule
 
 
-// ============================================================
-// Registro de partidas ganadas
-// ============================================================
 module reg_ganadas (
     input  logic       clk,
     input  logic       rst,
@@ -118,9 +106,7 @@ module reg_ganadas (
 endmodule
 
 
-// ============================================================
-// Contador de refresco
-// ============================================================
+
 module contador_refresco #(
     parameter REFRESH_BITS = 18
 )(
