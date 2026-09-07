@@ -20,6 +20,9 @@ module tb_receptor_uart;
   logic [7:0] o_letra_tb;
   logic o_valid_w_tb;
 
+  int pruebas = 0;
+  int errores = 0;
+
   receptor_uart dut (
     .clk(clk_tb),
     .rst(rst_tb),
@@ -66,6 +69,35 @@ module tb_receptor_uart;
     inyectar = 1'b0;
   endtask
 
+  task automatic anotar(input string nombre, input bit ok, input string detalle);
+    pruebas++;
+    if (ok) begin
+      $display("  ok     %s", nombre);
+    end
+    else begin
+      errores++;
+      $display("  FALLO  %s", nombre);
+      $display("         %s", detalle);
+    end
+  endtask
+
+  task automatic chequear_bus(input string nombre, input logic [1:0] addr, input logic we);
+    anotar(nombre, o_addr_tb === addr && o_write_enable_tb === we,
+           $sformatf("esperaba addr=%02b we=%0b y dio addr=%02b we=%0b",
+                     addr, we, o_addr_tb, o_write_enable_tb));
+  endtask
+
+  task automatic chequear_letra(input string nombre, input logic [7:0] letra, input logic valid);
+    anotar(nombre, o_letra_tb === letra && o_valid_w_tb === valid,
+           $sformatf("esperaba letra=%02h valid=%0b y dio letra=%02h valid=%0b",
+                     letra, valid, o_letra_tb, o_valid_w_tb));
+  endtask
+
+  task automatic chequear_valid(input string nombre, input logic valid);
+    anotar(nombre, o_valid_w_tb === valid,
+           $sformatf("o_valid_w esperaba %0b y dio %0b", valid, o_valid_w_tb));
+  endtask
+
   // Mete un byte y avanza hasta el ciclo en que el dut ya lo evaluo
   task automatic entregar(input logic [7:0] b);
     llega(b);
@@ -88,12 +120,35 @@ module tb_receptor_uart;
     $display("== tb_receptor_uart ==");
 
     ciclo();
+    chequear_letra("el reset deja la letra y el valid en cero", 8'h00, 1'b0);
+    chequear_bus("el reset deja el bus sondeando control sin escribir", ADDR_CTRL, 1'b0);
     rst_tb = 1'b0;
+
     repeat (5) ciclo();
+    chequear_bus("sin new_rx se queda sondeando el registro de control", ADDR_CTRL, 1'b0);
+    chequear_valid("y no entrega ninguna letra", 1'b0);
 
-    entregar("A");
+    llega("A");
+    chequear_bus("todavia en espera el ciclo en que llega el byte", ADDR_CTRL, 1'b0);
+
     ciclo();
+    chequear_bus("con new_rx arriba pasa a leer el registro de datos", ADDR_DATOS_RX, 1'b0);
 
+    ciclo();
+    chequear_letra("la A sale con su valid", 8'h41, 1'b1);
+    chequear_bus("y en el mismo ciclo escribe para bajar new_rx", ADDR_CTRL, 1'b1);
+    anotar("la escritura de limpieza manda ceros", o_wdata_tb === 32'b0,
+           $sformatf("o_wdata esperaba 0 y dio %08h", o_wdata_tb));
+
+    ciclo();
+    chequear_valid("o_valid_w dura un solo ciclo", 1'b0);
+    chequear_bus("y vuelve a sondear control", ADDR_CTRL, 1'b0);
+
+    repeat (5) ciclo();
+    chequear_valid("el byte ya limpiado no se vuelve a entregar", 1'b0);
+
+    $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
+    if (errores != 0) $fatal(1, "tb_receptor_uart termino con fallos");
     $finish;
   end
 
