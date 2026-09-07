@@ -186,6 +186,27 @@ module tb_comparador_letra;
     chequear_mascara("la A revela las doce posiciones de un golpe", 12'hFFF);
     chequear_completa("palabra completa sin relleno de por medio", 1'b1);
 
+    cargar("CASA");
+    mandar("A");
+    rst_tb = 1'b1;
+    i_letra_tb = "C";
+    i_letra_nueva_tb = 1'b1;
+    ciclo();
+    rst_tb = 1'b0;
+    i_letra_nueva_tb = 1'b0;
+    chequear_mascara("el rst gana aunque llegue una letra en el mismo ciclo", 12'h000);
+    chequear_letra("el rst deja la evaluacion en fallo y sin pulsos", FALLO, 1'b0, 1'b0);
+
+    i_word_tb = empacar("CASA");
+    i_word_length_tb = 4;
+    i_state_tb = CARGA;
+    i_letra_tb = "A";
+    i_letra_nueva_tb = 1'b1;
+    ciclo();
+    i_state_tb = JUEGO;
+    i_letra_nueva_tb = 1'b0;
+    chequear_mascara("CARGA le gana a la letra, la mascara queda solo con el relleno", 12'hFF0);
+
     $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_comparador_letra termino con fallos");
     $finish;
