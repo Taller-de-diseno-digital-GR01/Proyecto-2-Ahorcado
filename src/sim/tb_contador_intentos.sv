@@ -41,12 +41,12 @@ module tb_contador_intentos;
                           input logic esperado_agotados);
     pruebas++;
     if (o_intentos_tb === esperado_intentos && o_intentos_agotados_tb === esperado_agotados) begin
-      $display("  ok     %s", nombre);
+      $display("ok %s", nombre);
     end
     else begin
       errores++;
-      $display("  FALLO  %s", nombre);
-      $display("         o_intentos esperaba %0d y dio %0d, o_intentos_agotados esperaba %0b y dio %0b",
+      $display("fallo %s", nombre);
+      $display("  o_intentos esperaba %0d y dio %0d, o_intentos_agotados esperaba %0b y dio %0b",
                esperado_intentos, o_intentos_tb, esperado_agotados, o_intentos_agotados_tb);
     end
   endtask
@@ -61,8 +61,6 @@ module tb_contador_intentos;
     rst_tb = 1'b1;
     i_try_tb = 1'b0;
     i_state_tb = JUEGO;
-
-    $display("== tb_contador_intentos, MAX_INTENTOS=%0d ==", MAX_INTENTOS);
 
     ciclo();
     chequear("el reset deja la cuenta en cero", 0, 1'b0);
@@ -115,7 +113,7 @@ module tb_contador_intentos;
     i_try_tb = 1'b0;
     chequear("CARGA gana aunque llegue un try en el mismo ciclo", 0, 1'b0);
 
-    $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
+    $display("%0d pruebas, %0d fallos", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_contador_intentos termino con fallos");
     $finish;
   end
