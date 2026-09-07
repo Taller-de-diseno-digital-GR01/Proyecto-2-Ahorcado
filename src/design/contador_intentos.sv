@@ -8,11 +8,11 @@ module contador_intentos #(parameter MAX_INTENTOS = 6) ( // el enunciado fija 6 
   output logic o_intentos_agotados // hacia la fsm
   );
 
-  localparam CARGA = 3'b001;
+  localparam CARGA = 3'b001; // <-- Esto es, en teoría, uno de los estados de la fsm principal.
 
   logic [$clog2(MAX_INTENTOS+1)-1:0] cuenta;
 
-  // El paso por CARGA es la señal de partida nueva, no hace falta que la fsm mande un clear aparte
+  // La fsm no manda rst aqui porque basta con CARGA
   always_ff @(posedge clk) begin
     if (rst || i_state == CARGA) begin // el rst gana aunque llegue un try en el mismo ciclo
       cuenta <= 0;
@@ -23,6 +23,6 @@ module contador_intentos #(parameter MAX_INTENTOS = 6) ( // el enunciado fija 6 
   end
 
   assign o_intentos = cuenta;
-  assign o_intentos_agotados = (cuenta >= MAX_INTENTOS); // combinacional para que la fsm lo vea el mismo ciclo del sexto fallo
+  assign o_intentos_agotados = (cuenta >= MAX_INTENTOS); // >= es el seguro por si algún día se rompe la saturación de arriba, así la señal ya no vuelve a bajar
 
 endmodule
