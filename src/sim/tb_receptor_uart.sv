@@ -168,6 +168,29 @@ module tb_receptor_uart;
     entregar("M");
     chequear_letra("despues de varios bytes botados sigue entregando bien", 8'h4D, 1'b1);
 
+    i_state_tb = SELECCION;
+    entregar("M");
+    chequear_valid("una letra valida en seleccion de modo se descarta", 1'b0);
+
+    ciclo();
+    chequear_bus("pero igual limpio new_rx y volvio a espera", ADDR_CTRL, 1'b0);
+
+    i_state_tb = RESULTADO;
+    entregar("M");
+    chequear_valid("una letra valida mostrando resultado tambien se descarta", 1'b0);
+
+    i_state_tb = JUEGO;
+    entregar("M");
+    chequear_letra("de vuelta en juego la vuelve a aceptar", 8'h4D, 1'b1);
+
+    llega("Q");
+    ciclo();
+    rst_tb = 1'b1;
+    ciclo();
+    rst_tb = 1'b0;
+    chequear_letra("un rst a mitad de la lectura la aborta", 8'h00, 1'b0);
+    chequear_bus("y deja el bus de vuelta en espera", ADDR_CTRL, 1'b0);
+
     $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_receptor_uart termino con fallos");
     $finish;
