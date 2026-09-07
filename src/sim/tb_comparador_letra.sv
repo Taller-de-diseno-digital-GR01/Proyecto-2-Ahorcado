@@ -206,6 +206,7 @@ module tb_comparador_letra;
     i_state_tb = JUEGO;
     i_letra_nueva_tb = 1'b0;
     chequear_mascara("CARGA le gana a la letra, la mascara queda solo con el relleno", 12'hFF0);
+    chequear_letra("y la evaluacion tampoco le contesta a esa letra", FALLO, 1'b0, 1'b0);
 
     $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_comparador_letra termino con fallos");
