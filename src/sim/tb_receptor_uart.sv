@@ -42,7 +42,7 @@ module tb_receptor_uart;
     #1;
   endtask
 
-  // Modelo del periferico uart, devuelve control o dato segun la direccion que le pone el dut
+  // modelo del periferico uart, contesta control o dato segun la direccion que le pone el dut
   logic new_rx_modelo;
   logic [7:0] byte_modelo;
   logic inyectar;
@@ -72,12 +72,12 @@ module tb_receptor_uart;
   task automatic anotar(input string nombre, input bit ok, input string detalle);
     pruebas++;
     if (ok) begin
-      $display("  ok     %s", nombre);
+      $display("ok %s", nombre);
     end
     else begin
       errores++;
-      $display("  FALLO  %s", nombre);
-      $display("         %s", detalle);
+      $display("fallo %s", nombre);
+      $display("  %s", detalle);
     end
   endtask
 
@@ -98,7 +98,7 @@ module tb_receptor_uart;
            $sformatf("o_valid_w esperaba %0b y dio %0b", valid, o_valid_w_tb));
   endtask
 
-  // Mete un byte y avanza hasta el ciclo en que el dut ya lo evaluo
+  // mete un byte y avanza hasta el ciclo en que el dut ya lo evaluo
   task automatic entregar(input logic [7:0] b);
     llega(b);
     ciclo();
@@ -116,8 +116,6 @@ module tb_receptor_uart;
     i_state_tb = JUEGO;
     byte_modelo = 8'h00;
     inyectar = 1'b0;
-
-    $display("== tb_receptor_uart ==");
 
     ciclo();
     chequear_letra("el reset deja la letra y el valid en cero", 8'h00, 1'b0);
@@ -191,7 +189,7 @@ module tb_receptor_uart;
     chequear_letra("un rst a mitad de la lectura la aborta", 8'h00, 1'b0);
     chequear_bus("y deja el bus de vuelta en espera", ADDR_CTRL, 1'b0);
 
-    $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
+    $display("%0d pruebas, %0d fallos", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_receptor_uart termino con fallos");
     $finish;
   end
