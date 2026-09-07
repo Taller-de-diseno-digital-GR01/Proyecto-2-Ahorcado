@@ -131,6 +131,33 @@ module tb_comparador_letra;
     chequear_mascara("CARGA pone el relleno en unos y las cuatro posiciones en cero", 12'hFF0);
     chequear_completa("una palabra recien cargada no esta completa", 1'b0);
 
+    mandar("A");
+    chequear_letra("la A esta en CASA y sale como acierto", ACIERTO, 1'b1, 1'b0);
+    chequear_mascara("la A revela sus dos posiciones de un solo golpe", 12'hFFA);
+    chequear_completa("con la palabra a medias no hay completa", 1'b0);
+
+    ciclo();
+    chequear_letra("o_letra_lista dura un solo ciclo", ACIERTO, 1'b0, 1'b0);
+
+    mandar("Z");
+    chequear_letra("la Z no esta y gasta intento", FALLO, 1'b1, 1'b1);
+    chequear_mascara("un fallo no le mueve nada a la mascara", 12'hFFA);
+
+    ciclo();
+    chequear_letra("o_try tambien dura un solo ciclo", FALLO, 1'b0, 1'b0);
+
+    mandar("A");
+    chequear_letra("la A repetida avisa pero no gasta intento", REPETIDA, 1'b1, 1'b0);
+    chequear_mascara("una repetida no toca la mascara", 12'hFFA);
+
+    mandar("Z");
+    chequear_letra("una letra que ya fallo tambien cuenta como repetida", REPETIDA, 1'b1, 1'b0);
+
+    mandar("C");
+    chequear_letra("la C acierta", ACIERTO, 1'b1, 1'b0);
+    chequear_mascara("la C revela la primera posicion", 12'hFFB);
+    chequear_completa("todavia falta la S", 1'b0);
+
     $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_comparador_letra termino con fallos");
     $finish;
