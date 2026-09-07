@@ -31,9 +31,7 @@ module M06_Ganadas (
 
     logic entrada_gano;
 
-    // --------------------------------------------------------
-    // Detector combinacional de entrada al estado GANO
-    // --------------------------------------------------------
+
     assign entrada_gano = (state == GANO) && (state_prev != GANO);
 
 
