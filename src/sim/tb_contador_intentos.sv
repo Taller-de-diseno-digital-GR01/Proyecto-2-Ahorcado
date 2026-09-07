@@ -85,6 +85,36 @@ module tb_contador_intentos;
     end
     chequear("tres fallos de mas no le dan la vuelta a la cuenta", MAX_INTENTOS, 1'b1);
 
+    i_state_tb = CARGA;
+    ciclo();
+    i_state_tb = JUEGO;
+    chequear("CARGA limpia la cuenta de la partida anterior", 0, 1'b0);
+
+    i_try_tb = 1'b1;
+    ciclo();
+    ciclo();
+    i_try_tb = 1'b0;
+    chequear("dos fallos seguidos en la partida nueva", 2, 1'b0);
+
+    rst_tb = 1'b1;
+    i_try_tb = 1'b1;
+    ciclo();
+    rst_tb = 1'b0;
+    i_try_tb = 1'b0;
+    chequear("el rst gana aunque llegue un try en el mismo ciclo", 0, 1'b0);
+
+    i_try_tb = 1'b1;
+    ciclo();
+    i_try_tb = 1'b0;
+    chequear("un fallo suelto despues del rst", 1, 1'b0);
+
+    i_state_tb = CARGA;
+    i_try_tb = 1'b1;
+    ciclo();
+    i_state_tb = JUEGO;
+    i_try_tb = 1'b0;
+    chequear("CARGA gana aunque llegue un try en el mismo ciclo", 0, 1'b0);
+
     $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_contador_intentos termino con fallos");
     $finish;
