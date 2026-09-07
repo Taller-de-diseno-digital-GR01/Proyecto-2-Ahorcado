@@ -158,6 +158,34 @@ module tb_comparador_letra;
     chequear_mascara("la C revela la primera posicion", 12'hFFB);
     chequear_completa("todavia falta la S", 1'b0);
 
+    mandar("S");
+    chequear_letra("la S acierta y cierra la palabra", ACIERTO, 1'b1, 1'b0);
+    chequear_mascara("CASA quedo entera revelada", 12'hFFF);
+    chequear_completa("palabra completa con una palabra de 4 letras", 1'b1);
+
+    cargar("CASA");
+    chequear_mascara("la partida nueva vuelve a dejar solo el relleno", 12'hFF0);
+    chequear_completa("y baja palabra completa", 1'b0);
+
+    mandar("A");
+    chequear_letra("CARGA limpia las usadas, la A vuelve a ser acierto", ACIERTO, 1'b1, 1'b0);
+
+    // el relleno de i_word va en ceros y cero es la letra A, sin el filtro de relleno una A
+    // contra una palabra corta sin A daria coincidencia en las posiciones que no existen
+    cargar("PERRO");
+    chequear_mascara("PERRO deja el relleno desde la posicion 5", 12'hFE0);
+
+    mandar("A");
+    chequear_letra("la A no esta en PERRO y no la confunde con el relleno", FALLO, 1'b1, 1'b1);
+    chequear_mascara("y la mascara se queda igual", 12'hFE0);
+
+    cargar("AAAAAAAAAAAA");
+    chequear_mascara("una palabra de 12 no deja relleno", 12'h000);
+
+    mandar("A");
+    chequear_mascara("la A revela las doce posiciones de un golpe", 12'hFFF);
+    chequear_completa("palabra completa sin relleno de por medio", 1'b1);
+
     $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_comparador_letra termino con fallos");
     $finish;
