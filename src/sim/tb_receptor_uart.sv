@@ -178,6 +178,25 @@ module tb_receptor_uart;
     #1;
   endtask
 
+  // el nucleo termina el byte a mitad del bit de stop, o sea que el receptor lo atiende mientras la linea
+  logic limpiar_visto;
+  logic hubo_atencion;
+  logic [7:0] letra_vista;
+  logic valid_visto;
+
+  always_ff @(posedge clk_tb) begin
+    if (rst_tb || limpiar_visto) begin
+      hubo_atencion <= 1'b0;
+      letra_vista <= 8'h00;
+      valid_visto <= 1'b0;
+    end
+    else if (o_write_enable_tb && o_addr_tb == ADDR_CTRL) begin
+      hubo_atencion <= 1'b1;
+      letra_vista <= o_letra_tb;
+      valid_visto <= o_valid_w_tb;
+    end
+  end
+
   // un bit por vez sobre la linea, start en cero, ocho de dato con el menos significativo primero, stop en uno
   task automatic serial(input logic [7:0] b);
     rx_linea = 1'b0;
@@ -204,6 +223,26 @@ module tb_receptor_uart;
 
   task automatic esperar_rdy();
     while (!rx_data_rdy) ciclo();
+  endtask
+
+  task automatic enviar(input logic [7:0] b);
+    limpiar_visto = 1'b1;
+    ciclo();
+    limpiar_visto = 1'b0;
+    serial(b);
+    repeat (20) ciclo();
+  endtask
+
+  task automatic chequear_entrega(input string nombre, input logic [7:0] letra);
+    anotar(nombre, hubo_atencion === 1'b1 && letra_vista === letra && valid_visto === 1'b1,
+           $sformatf("esperaba atendido con letra=%02h y valid=1, y dio atendido=%0b letra=%02h valid=%0b",
+                     letra, hubo_atencion, letra_vista, valid_visto));
+  endtask
+
+  task automatic chequear_descarte(input string nombre);
+    anotar(nombre, hubo_atencion === 1'b1 && valid_visto === 1'b0,
+           $sformatf("esperaba atendido sin valid, y dio atendido=%0b valid=%0b",
+                     hubo_atencion, valid_visto));
   endtask
 
   task automatic chequear_bus(input string nombre, input logic [1:0] addr, input logic we);
@@ -264,6 +303,25 @@ module tb_receptor_uart;
 
     repeat (CICLOS_BIT) ciclo();
     chequear_valid("el byte ya limpiado no se vuelve a entregar", 1'b0);
+
+    enviar("Z");
+    chequear_entrega("la Z pasa, es el borde de arriba del rango", 8'h5A);
+
+    enviar(8'h40);
+    chequear_descarte("el arroba queda justo debajo de la A y se descarta");
+    chequear_bus("y aun asi volvio a espera, el receptor no se traba", ADDR_CTRL, 1'b0);
+
+    enviar(8'h5B);
+    chequear_descarte("el corchete queda justo encima de la Z y se descarta");
+
+    enviar("a");
+    chequear_descarte("una minuscula se descarta");
+
+    enviar("7");
+    chequear_descarte("un digito se descarta");
+
+    enviar("M");
+    chequear_entrega("despues de varios bytes botados sigue entregando bien", 8'h4D);
 
     $display("%0d pruebas, %0d fallos", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_receptor_uart termino con fallos");
