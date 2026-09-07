@@ -2,18 +2,19 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
   input logic clk,
   input logic rst,
   input logic [7:0] i_letra, // ascii, tal como salió del uart
-  input logic i_letra_nueva, // estrobo de un ciclo desde REG_Letra-in
+  input logic i_letra_nueva, // pulso de un ciclo desde REG_Letra-in
   input logic [WORD_MAXLEN*LETRA_WIDTH-1:0] i_word, // palabra de la partida, letra 1 en los bits bajos
-  input logic [$clog2(WORD_MAXLEN+1)-1:0] i_word_length,
-  input logic [2:0] i_state, // desde la fsm, de acá solo me interesa CARGA
+  input logic [$clog2(WORD_MAXLEN+1)-1:0] i_word_length, // +1 para que tengamos suficientes bits. Mejor que sobre a que falte
+  input logic [2:0] i_state, // desde la fsm, de acá solo interesa CARGA
 
   output logic [1:0] o_letra_state, // 00 fallo, 01 acierto, 10 repetida
-  output logic o_letra_lista, // estrobo que acompaña a o_letra_state
+  output logic o_letra_lista, // pulso que acompaña a o_letra_state
   output logic o_palabra_completa, // hacia la fsm
   output logic [WORD_MAXLEN-1:0] o_mascara, // posiciones reveladas, hacia el lcd y el transmisor
   output logic o_try // pulso de fallo, hacia contador_intentos
   );
 
+  // EStados
   localparam CARGA = 3'b001;
   localparam FALLO = 2'b00;
   localparam ACIERTO = 2'b01;
@@ -24,7 +25,7 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
   logic [LETRA_WIDTH-1:0] codigo;
   logic hay_coincidencia;
 
-  assign codigo = i_letra - 8'h41; // el uart manda ascii pero el banco guarda la letra como índice A=0
+  assign codigo = i_letra - 8'h41; // el uart manda ascii pero el banco guarda la letra
 
   always_comb begin
     for (int i = 0; i < WORD_MAXLEN; i++) begin
@@ -33,7 +34,7 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
     end
   end
 
-  assign hay_coincidencia = |coincide;
+  assign hay_coincidencia = (coincide != '0); // lo mismo que |coincide, la reducción or que colapsa el vector a un bit
 
   // 2. Lo que el módulo se acuerda de la partida, cuáles posiciones ya se revelaron y cuáles letras ya llegaron
   logic [WORD_MAXLEN-1:0] mascara;
@@ -58,7 +59,7 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
     end
   end
 
-  // 3. Evaluación de la letra, sale un ciclo después del estrobo, alineada con la actualización de la máscara
+  // 3. Evaluación de la letra, sale un ciclo después del pulso, alineada con la actualización de la máscara
   always_ff @(posedge clk) begin
     o_letra_lista <= 1'b0;
     o_try <= 1'b0;
@@ -82,6 +83,6 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
 
   // 4. Salidas continuas
   assign o_mascara = mascara;
-  assign o_palabra_completa = &mascara; // se levanta el mismo ciclo en que la última letra revela la última posición
+  assign o_palabra_completa = (mascara == '1); // lo mismo que &mascara, se levanta el mismo ciclo en que la última letra revela la última posición
 
 endmodule
