@@ -71,6 +71,20 @@ module tb_contador_intentos;
     repeat (4) ciclo();
     chequear("sin pulsos de fallo la cuenta no se mueve", 0, 1'b0);
 
+    for (int n = 1; n <= MAX_INTENTOS; n++) begin
+      i_try_tb = 1'b1;
+      ciclo();
+      i_try_tb = 1'b0;
+      chequear($sformatf("fallo %0d de %0d", n, MAX_INTENTOS), n[ANCHO-1:0], (n == MAX_INTENTOS));
+    end
+
+    repeat (3) begin
+      i_try_tb = 1'b1;
+      ciclo();
+      i_try_tb = 1'b0;
+    end
+    chequear("tres fallos de mas no le dan la vuelta a la cuenta", MAX_INTENTOS, 1'b1);
+
     $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_contador_intentos termino con fallos");
     $finish;
