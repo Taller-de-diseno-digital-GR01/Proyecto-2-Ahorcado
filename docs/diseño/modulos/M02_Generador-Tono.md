@@ -85,9 +85,9 @@ mientras `REG_ENABLE` está activo; cuando llega a la duración fija del tono, a
 `REG_ENABLE` y el módulo vuelve a silencio hasta el próximo disparo.
 
 La salida `sound` no es directamente `REG_ONDA`: se combina con `REG_ENABLE` (`sound = REG_ONDA
-AND REG_ENABLE`) para que el buzzer quede en `0` franco entre tonos, en vez de quedarse
+AND REG_ENABLE`) para que el buzzer quede en `0` entre tonos, en vez de quedarse
 "congelado" en `1` si el último toggle antes de apagarse dejó la onda en alto. Un piezoeléctrico
-pasivo con una tensión de continua sostenida no sueña nada pero sí puede degradarse con el tiempo,
+pasivo con una tensión de continua sostenida no suena nada pero sí puede degradarse con el tiempo,
 así que forzar el silencio a `0` es la opción más segura y no cuesta hardware adicional, un único
 AND de dos entradas.
 
