@@ -27,6 +27,9 @@ module tb_comparador_letra;
   logic [WORD_MAXLEN-1:0] o_mascara_tb;
   logic o_try_tb;
 
+  int pruebas = 0;
+  int errores = 0;
+
   comparador_letra #(.WORD_MAXLEN(WORD_MAXLEN), .LETRA_WIDTH(LETRA_WIDTH)) dut (
     .clk(clk_tb),
     .rst(rst_tb),
@@ -72,6 +75,36 @@ module tb_comparador_letra;
     i_letra_nueva_tb = 1'b0;
   endtask
 
+  task automatic anotar(input string nombre, input bit ok, input string detalle);
+    pruebas++;
+    if (ok) begin
+      $display("  ok     %s", nombre);
+    end
+    else begin
+      errores++;
+      $display("  FALLO  %s", nombre);
+      $display("         %s", detalle);
+    end
+  endtask
+
+  task automatic chequear_mascara(input string nombre, input logic [WORD_MAXLEN-1:0] esperada);
+    anotar(nombre, o_mascara_tb === esperada,
+           $sformatf("o_mascara esperaba %012b y dio %012b", esperada, o_mascara_tb));
+  endtask
+
+  task automatic chequear_letra(input string nombre, input logic [1:0] estado,
+                                input logic lista, input logic intento);
+    anotar(nombre,
+           o_letra_state_tb === estado && o_letra_lista_tb === lista && o_try_tb === intento,
+           $sformatf("esperaba state=%02b lista=%0b try=%0b y dio state=%02b lista=%0b try=%0b",
+                     estado, lista, intento, o_letra_state_tb, o_letra_lista_tb, o_try_tb));
+  endtask
+
+  task automatic chequear_completa(input string nombre, input logic esperada);
+    anotar(nombre, o_palabra_completa_tb === esperada,
+           $sformatf("o_palabra_completa esperaba %0b y dio %0b", esperada, o_palabra_completa_tb));
+  endtask
+
   initial begin
     $dumpfile("tb_comparador_letra.vcd");
     $dumpvars(0, tb_comparador_letra);
@@ -89,12 +122,17 @@ module tb_comparador_letra;
     $display("== tb_comparador_letra, WORD_MAXLEN=%0d ==", WORD_MAXLEN);
 
     ciclo();
+    chequear_mascara("el reset deja la mascara en ceros", 12'h000);
+    chequear_letra("el reset deja las salidas de letra quietas", FALLO, 1'b0, 1'b0);
+    chequear_completa("el reset no levanta palabra completa", 1'b0);
     rst_tb = 1'b0;
 
     cargar("CASA");
-    mandar("A");
-    ciclo();
+    chequear_mascara("CARGA pone el relleno en unos y las cuatro posiciones en cero", 12'hFF0);
+    chequear_completa("una palabra recien cargada no esta completa", 1'b0);
 
+    $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
+    if (errores != 0) $fatal(1, "tb_comparador_letra termino con fallos");
     $finish;
   end
 
