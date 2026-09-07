@@ -78,12 +78,12 @@ module tb_comparador_letra;
   task automatic anotar(input string nombre, input bit ok, input string detalle);
     pruebas++;
     if (ok) begin
-      $display("  ok     %s", nombre);
+      $display("ok %s", nombre);
     end
     else begin
       errores++;
-      $display("  FALLO  %s", nombre);
-      $display("         %s", detalle);
+      $display("fallo %s", nombre);
+      $display("  %s", detalle);
     end
   endtask
 
@@ -118,8 +118,6 @@ module tb_comparador_letra;
     i_word_tb = '0;
     i_word_length_tb = '0;
     i_state_tb = JUEGO;
-
-    $display("== tb_comparador_letra, WORD_MAXLEN=%0d ==", WORD_MAXLEN);
 
     ciclo();
     chequear_mascara("el reset deja la mascara en ceros", 12'h000);
@@ -170,8 +168,7 @@ module tb_comparador_letra;
     mandar("A");
     chequear_letra("CARGA limpia las usadas, la A vuelve a ser acierto", ACIERTO, 1'b1, 1'b0);
 
-    // el relleno de i_word va en ceros y cero es la letra A, sin el filtro de relleno una A
-    // contra una palabra corta sin A daria coincidencia en las posiciones que no existen
+    // el relleno de i_word va en ceros y cero es la A, sin el filtro de relleno una A contra una palabra corta sin A daria coincidencia en posiciones que no existen
     cargar("PERRO");
     chequear_mascara("PERRO deja el relleno desde la posicion 5", 12'hFE0);
 
@@ -208,7 +205,7 @@ module tb_comparador_letra;
     chequear_mascara("CARGA le gana a la letra, la mascara queda solo con el relleno", 12'hFF0);
     chequear_letra("y la evaluacion tampoco le contesta a esa letra", FALLO, 1'b0, 1'b0);
 
-    $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
+    $display("%0d pruebas, %0d fallos", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_comparador_letra termino con fallos");
     $finish;
   end
