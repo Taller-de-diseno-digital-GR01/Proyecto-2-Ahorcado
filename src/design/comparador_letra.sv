@@ -34,7 +34,7 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
     end
   end
 
-  assign hay_coincidencia = (coincide != '0); // lo mismo que |coincide, la reducción or que colapsa el vector a un bit
+  assign hay_coincidencia = (coincide != '0); // lo mismo que |coincide, junta todo el vector en un solo bit
 
   // 2. Lo que el módulo se acuerda de la partida, cuáles posiciones ya se revelaron y cuáles letras ya llegaron
   logic [WORD_MAXLEN-1:0] mascara;
