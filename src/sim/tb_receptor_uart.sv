@@ -147,6 +147,27 @@ module tb_receptor_uart;
     repeat (5) ciclo();
     chequear_valid("el byte ya limpiado no se vuelve a entregar", 1'b0);
 
+    entregar("Z");
+    chequear_letra("la Z tambien pasa, es el borde de arriba del rango", 8'h5A, 1'b1);
+
+    entregar(8'h40);
+    chequear_valid("el arroba queda justo debajo de la A y se descarta", 1'b0);
+
+    ciclo();
+    chequear_bus("y aun asi vuelve a espera, el receptor no se traba", ADDR_CTRL, 1'b0);
+
+    entregar(8'h5B);
+    chequear_valid("el corchete queda justo encima de la Z y se descarta", 1'b0);
+
+    entregar("a");
+    chequear_valid("una minuscula se descarta", 1'b0);
+
+    entregar("7");
+    chequear_valid("un digito se descarta", 1'b0);
+
+    entregar("M");
+    chequear_letra("despues de varios bytes botados sigue entregando bien", 8'h4D, 1'b1);
+
     $display("== %0d pruebas, %0d fallos ==", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_receptor_uart termino con fallos");
     $finish;
