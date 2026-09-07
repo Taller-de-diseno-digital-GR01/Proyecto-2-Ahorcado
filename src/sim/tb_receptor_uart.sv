@@ -323,6 +323,49 @@ module tb_receptor_uart;
     enviar("M");
     chequear_entrega("despues de varios bytes botados sigue entregando bien", 8'h4D);
 
+    i_state_tb = SELECCION;
+    enviar("M");
+    chequear_descarte("una letra valida en seleccion de modo se descarta, pero igual limpia new_rx");
+
+    i_state_tb = RESULTADO;
+    enviar("M");
+    chequear_descarte("una letra valida mostrando resultado tambien se descarta");
+
+    i_state_tb = JUEGO;
+    enviar("M");
+    chequear_entrega("de vuelta en juego la vuelve a aceptar", 8'h4D);
+
+    // sin un solo ciclo de linea en reposo entre el stop de uno y el start del otro
+    limpiar_visto = 1'b1;
+    ciclo();
+    limpiar_visto = 1'b0;
+    serial("H");
+    chequear_entrega("el primero de un par pegado sale bien", 8'h48);
+    limpiar_visto = 1'b1;
+    ciclo();
+    limpiar_visto = 1'b0;
+    serial("I");
+    repeat (20) ciclo();
+    chequear_entrega("el segundo del par pegado tambien", 8'h49);
+
+    // rst a mitad del byte, el que venia en camino se pierde y el receptor tiene que quedar sano
+    fork
+      serial("Q");
+      begin
+        repeat (CICLOS_BIT * 4) ciclo();
+        rst_tb = 1'b1;
+        repeat (10) ciclo();
+        rst_tb = 1'b0;
+      end
+    join
+    // la cola del byte cortado deja bits sueltos en la linea, el nucleo resincroniza sobre ellos y arma un frame falso
+    repeat (CICLOS_BIT * 12) ciclo();
+    chequear_valid("pasado el ruido del corte no queda ninguna letra entregandose", 1'b0);
+    chequear_bus("y el bus quedo de vuelta en espera", ADDR_CTRL, 1'b0);
+
+    enviar("W");
+    chequear_entrega("y sigue recibiendo bien despues de ese rst", 8'h57);
+
     $display("%0d pruebas, %0d fallos", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_receptor_uart termino con fallos");
     $finish;
