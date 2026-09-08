@@ -182,6 +182,40 @@ module tb_uart_tx;
     anotar("o_listo no se queda pegado", o_listo_tb === 1'b0,
            $sformatf("o_listo dio %0b", o_listo_tb));
 
+    limpiar_conteo = 1'b1;
+    ciclo();
+    limpiar_conteo = 1'b0;
+    fork
+      enviar(8'h37);
+      espiar("otro byte para medir el ancho de o_listo", 8'h37);
+    join
+    esperar_espejo("el espejo lo saca", 8'h37);
+    repeat (TICKS_BIT * 2) ciclo();
+    anotar("o_listo dura exactamente un ciclo por byte", ciclos_listo === 1,
+           $sformatf("o_listo estuvo alto %0d ciclos, se esperaba 1", ciclos_listo));
+
+    // Entre el bit de parada y el siguiente tick de reposo el detector queda en pausa, un pulso de un ciclo ahi se pierde
+    fork
+      enviar("H");
+      espiar("el primero de un par pegado", 8'h48);
+    join
+    esperar_espejo("y el espejo lo saca", 8'h48);
+
+    i_dato_tb = "X";
+    i_enviar_tb = 1'b1;
+    ciclo();
+    i_enviar_tb = 1'b0;
+    repeat (TICKS_BIT * 3) ciclo();
+    anotar("un pulso de un ciclo apenas termina el byte anterior se pierde", linea === 1'b1,
+           "la linea arranco, se esperaba que el detector en pausa se comiera el pulso");
+
+    // sostenido si entra, el nucleo lo agarra apenas el detector se reactiva
+    fork
+      enviar_sostenido("I");
+      espiar("sostener i_enviar si atraviesa la ventana muerta", 8'h49);
+    join
+    esperar_espejo("el espejo saca el segundo del par", 8'h49);
+
     $display("%0d pruebas, %0d fallos", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_uart_tx termino con fallos");
     $finish;
