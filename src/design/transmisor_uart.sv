@@ -9,6 +9,7 @@ module transmisor_uart #(parameter WORD_MAXLEN = 12) (
   input logic [3:0] i_word_length, // longitud de la palabra, desde REG_Palabra-escogida
   input logic [WORD_MAXLEN-1:0] i_mascara, // posiciones reveladas, desde M07_Comparador-letra
   input logic [31:0] i_rdata,      // bus de 32 bits compartido con PERIFERICO_UART
+  input logic i_bus_libre,         // desde el arbitro, el receptor tiene prioridad y este se aguanta
 
   output logic o_write_enable,
   output logic [1:0] o_addr,
@@ -67,7 +68,7 @@ module transmisor_uart #(parameter WORD_MAXLEN = 12) (
   logic [2:0] pend_fin_causa;
 
   assign hay_pendiente = pend_fin | pend_letra | pend_ini;
-  assign consumir = (estado == IDLE) && hay_pendiente;
+  assign consumir = (estado == IDLE) && hay_pendiente && i_bus_libre; // atado a la transicion, si no se limpiaria una pendiente que nunca se manda
 
   // El set tiene prioridad sobre el clear si coinciden en el mismo ciclo, para no perder un
   // evento nuevo justo cuando se está consumiendo uno viejo del mismo tipo
@@ -116,14 +117,14 @@ module transmisor_uart #(parameter WORD_MAXLEN = 12) (
   assign mascara_ext = {{(16-WORD_MAXLEN){1'b0}}, pend_mascara_val}; // la mascara viaja en dos bytes, poco significativo primero
 
   assign send_busy = i_rdata[BIT_SEND];
-  assign estado_wait_libre = (estado == WAIT) && !send_busy;
+  assign estado_wait_libre = (estado == WAIT) && !send_busy && i_bus_libre; // sin el bus, send_busy llega en ceros y no significa nada
 
   always_comb begin
     estado_sig = estado;
     case (estado)
-      IDLE: if (hay_pendiente) estado_sig = LOAD_DATA;
-      LOAD_DATA: estado_sig = LOAD_CTRL;
-      LOAD_CTRL: estado_sig = WAIT;
+      IDLE: if (hay_pendiente && i_bus_libre) estado_sig = LOAD_DATA;
+      LOAD_DATA: if (i_bus_libre) estado_sig = LOAD_CTRL; // si el arbitro le corta el paso, reintenta la escritura el ciclo siguiente
+      LOAD_CTRL: if (i_bus_libre) estado_sig = WAIT;
       WAIT: if (estado_wait_libre) estado_sig = (cnt_byte == reg_len - 1) ? IDLE : LOAD_DATA;
       default: estado_sig = IDLE;
     endcase

@@ -50,6 +50,7 @@ module tb_transmisor_uart;
     .i_word_length(i_word_length_tb),
     .i_mascara(i_mascara_tb),
     .i_rdata(i_rdata_tb),
+    .i_bus_libre(1'b1), // el arbitro tiene su propio testbench, aca el transmisor manda solo
     .o_write_enable(o_write_enable_tb),
     .o_addr(o_addr_tb),
     .o_wdata(o_wdata_tb)
