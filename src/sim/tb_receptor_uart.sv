@@ -1,112 +1,7 @@
 `timescale 1ns/1ps
 
-// Transcripcion de UART/src/UART_rx.vhd, misma fsm y mismos tiempos, para poder simularlo con iverilog
-module modelo_uart_rx #(parameter BAUD_X16_CLK_TICKS = 54) (
-  input logic clk,
-  input logic reset,
-  input logic rx_data_in,
-  output logic rx_data_rdy,
-  output logic [7:0] rx_data_out
-  );
-
-  localparam logic [1:0] IDLE = 2'd0;
-  localparam logic [1:0] START = 2'd1;
-  localparam logic [1:0] DATA = 2'd2;
-  localparam logic [1:0] STOP = 2'd3;
-
-  logic [1:0] rx_state;
-  logic baud_rate_x16_clk;
-  logic [7:0] rx_stored_data;
-  logic rx_end;
-  logic edge_signal;
-  int baud_x16_count;
-  int bit_duration_count;
-  int bit_count;
-
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      baud_rate_x16_clk <= 1'b0;
-      baud_x16_count <= BAUD_X16_CLK_TICKS - 1;
-    end
-    else if (baud_x16_count == 0) begin
-      baud_rate_x16_clk <= 1'b1;
-      baud_x16_count <= BAUD_X16_CLK_TICKS - 1;
-    end
-    else begin
-      baud_rate_x16_clk <= 1'b0;
-      baud_x16_count <= baud_x16_count - 1;
-    end
-  end
-
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      rx_state <= IDLE;
-      rx_stored_data <= 8'h00;
-      rx_data_out <= 8'h00;
-      rx_end <= 1'b0;
-      bit_duration_count <= 0;
-      bit_count <= 0;
-    end
-    else if (baud_rate_x16_clk) begin
-      case (rx_state)
-        IDLE: begin
-          rx_end <= 1'b0;
-          rx_stored_data <= 8'h00;
-          bit_duration_count <= 0;
-          bit_count <= 0;
-          if (!rx_data_in) rx_state <= START;
-        end
-        // los primeros 8 ticks de medio bit son los que corren el punto de muestreo al centro
-        START: begin
-          rx_end <= 1'b0;
-          if (!rx_data_in) begin
-            if (bit_duration_count == 7) begin
-              rx_state <= DATA;
-              bit_duration_count <= 0;
-            end
-            else bit_duration_count <= bit_duration_count + 1;
-          end
-          else rx_state <= IDLE;
-        end
-        DATA: begin
-          if (bit_duration_count == 15) begin
-            rx_stored_data[bit_count] <= rx_data_in;
-            bit_duration_count <= 0;
-            if (bit_count == 7) rx_state <= STOP;
-            else bit_count <= bit_count + 1;
-          end
-          else bit_duration_count <= bit_duration_count + 1;
-        end
-        STOP: begin
-          if (bit_duration_count == 15) begin
-            rx_data_out <= rx_stored_data;
-            rx_end <= 1'b1;
-            rx_state <= IDLE;
-          end
-          else bit_duration_count <= bit_duration_count + 1;
-        end
-      endcase
-    end
-  end
-
-  // detector de flanco sobre rx_end, por esto rx_data_rdy sale como un pulso de un solo ciclo
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      rx_data_rdy <= 1'b0;
-      edge_signal <= 1'b0;
-    end
-    else begin
-      rx_data_rdy <= rx_end && !edge_signal;
-      edge_signal <= rx_end;
-    end
-  end
-
-endmodule
-
-
 module tb_receptor_uart;
 
-  // el generico del profe viene en 9, calculado para 16 MHz, la Basys 3 corre a 100 MHz
   localparam TICKS = 54; // (100e6 / 115200) / 16 = 54.25
   localparam CICLOS_BIT = TICKS * 16;
 
@@ -148,12 +43,12 @@ module tb_receptor_uart;
     .o_valid_w(o_valid_w_tb)
   );
 
-  modelo_uart_rx #(.BAUD_X16_CLK_TICKS(TICKS)) nucleo (
+  uart_rx #(.TICKS_X16(TICKS)) nucleo (
     .clk(clk_tb),
-    .reset(rst_tb),
-    .rx_data_in(rx_linea),
-    .rx_data_rdy(rx_data_rdy),
-    .rx_data_out(rx_data_out)
+    .rst(rst_tb),
+    .i_rx(rx_linea),
+    .o_dato_listo(rx_data_rdy),
+    .o_dato(rx_data_out)
   );
 
   always #5 clk_tb = ~clk_tb;
