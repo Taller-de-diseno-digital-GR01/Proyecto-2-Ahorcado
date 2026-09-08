@@ -175,6 +175,45 @@ module tb_transmisor_uart;
     repeat (10) ciclo();
     chequear_largo("en seleccion de modo no manda nada", 0);
 
+    // trama de inicio, "I" mas modo mas longitud
+    arrancar_trama();
+    i_state_tb = JUEGO;
+    esperar_trama(3);
+    chequear_largo("la trama de inicio son tres bytes", 3);
+    chequear_byte("y arranca con la I", 0, 8'h49);
+    chequear_byte("el segundo byte es el modo", 1, 8'h00);
+    chequear_byte("el tercero es la longitud de la palabra", 2, 8'h05);
+
+    // trama de letra, "L" mas resultado mas intentos mas los dos bytes del patron
+    arrancar_trama();
+    pulso_letra(ACIERTO, 3'd2, 12'hFE5);
+    esperar_trama(5);
+    chequear_largo("la trama de letra son cinco bytes", 5);
+    chequear_byte("arranca con la L", 0, 8'h4C);
+    chequear_byte("el resultado es acierto", 1, 8'h01);
+    chequear_byte("los intentos acumulados van en el tercero", 2, 8'h02);
+    chequear_byte("el patron manda primero el byte bajo", 3, 8'hE5);
+    chequear_byte("y despues el alto", 4, 8'h0F);
+
+    arrancar_trama();
+    pulso_letra(FALLO, 3'd3, 12'hFE5);
+    esperar_trama(5);
+    chequear_byte("un fallo tambien manda trama", 1, 8'h00);
+    chequear_byte("con los intentos actualizados", 2, 8'h03);
+
+    arrancar_trama();
+    pulso_letra(REPETIDA, 3'd3, 12'hFE5);
+    esperar_trama(5);
+    chequear_byte("la repetida tambien avisa, si no la pc se queda esperando", 1, 8'h02);
+
+    // trama de fin, "F" mas la causa
+    arrancar_trama();
+    i_state_tb = GANO;
+    esperar_trama(2);
+    chequear_largo("la trama de fin son dos bytes", 2);
+    chequear_byte("arranca con la F", 0, 8'h46);
+    chequear_byte("y lleva el estado que causo el fin", 1, 8'h03);
+
     $display("%0d pruebas, %0d fallos", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_transmisor_uart termino con fallos");
     $finish;
