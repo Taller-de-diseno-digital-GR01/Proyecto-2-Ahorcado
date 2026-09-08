@@ -110,8 +110,8 @@ module tb_receptor_uart;
   localparam TICKS = 54; // (100e6 / 115200) / 16 = 54.25
   localparam CICLOS_BIT = TICKS * 16;
 
-  localparam logic [1:0] ADDR_CTRL = 2'b00;
-  localparam logic [1:0] ADDR_DATOS_RX = 2'b10;
+  localparam logic [1:0] ADDR_CTRL = 2'b10;
+  localparam logic [1:0] ADDR_DATOS_RX = 2'b01;
   localparam BIT_NEW_RX = 1;
 
   localparam logic [2:0] JUEGO = 3'b010;
