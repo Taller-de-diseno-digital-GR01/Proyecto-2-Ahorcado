@@ -83,6 +83,26 @@ module tb_arbitro_uart;
     anotar("y el transmisor se queda esperando", bus_libre === 1'b0,
            $sformatf("bus_libre dio %0b", bus_libre));
 
+    // el receptor limpia new_rx, el send del transmisor no se puede perder por el camino
+    poner(ADDR_CONTROL, 1'b1, 32'h0, ADDR_CONTROL, 1'b0, 32'b0, 32'h3);
+    chequear_salida("limpiar new_rx conserva el send que estaba alto", ADDR_CONTROL, 1'b1, 32'h1);
+
+    poner(ADDR_CONTROL, 1'b1, 32'h0, ADDR_CONTROL, 1'b0, 32'b0, 32'h2);
+    chequear_salida("y si send estaba bajo, sigue bajo", ADDR_CONTROL, 1'b1, 32'h0);
+
+    // el transmisor levanta send, el byte que el receptor no ha leido no se puede borrar
+    poner(ADDR_CONTROL, 1'b0, 32'b0, ADDR_CONTROL, 1'b1, 32'h1, 32'h2);
+    chequear_salida("levantar send conserva el new_rx que estaba esperando", ADDR_CONTROL, 1'b1, 32'h3);
+
+    poner(ADDR_CONTROL, 1'b0, 32'b0, ADDR_CONTROL, 1'b1, 32'h1, 32'h0);
+    chequear_salida("y sin byte esperando, new_rx se queda en cero", ADDR_CONTROL, 1'b1, 32'h1);
+
+    // el caso feo, los dos escriben el control en el mismo ciclo
+    poner(ADDR_CONTROL, 1'b1, 32'h0, ADDR_CONTROL, 1'b1, 32'h1, 32'h3);
+    chequear_salida("con los dos escribiendo el control a la vez, pasa el del receptor", ADDR_CONTROL, 1'b1, 32'h1);
+    anotar("y el transmisor sabe que no paso y va a reintentar", bus_libre === 1'b0,
+           $sformatf("bus_libre dio %0b", bus_libre));
+
     $display("%0d pruebas, %0d fallos", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_arbitro_uart termino con fallos");
     $finish;
