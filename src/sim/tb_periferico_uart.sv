@@ -117,6 +117,40 @@ module tb_periferico_uart;
 
     escribir(ADDR_DATOS_RX, 32'h00);
 
+    // arranca la transferencia, el byte sale por tx y vuelve por rx
+    escribir(ADDR_CONTROL, 32'h1);
+    chequear_reg("send se lee alto apenas se escribe", ADDR_CONTROL, 32'h1);
+
+    ciclo();
+    addr_tb = ADDR_CONTROL;
+    repeat (TICKS_BIT * 2) ciclo();
+    anotar("y sigue alto mientras el byte va saliendo", rdata_tb[BIT_SEND] === 1'b1,
+           $sformatf("control dio %08h", rdata_tb));
+
+    esperar_new_rx("el byte da la vuelta y levanta new_rx");
+    chequear_reg("y aparece entero en el registro de recepcion", ADDR_DATOS_RX, 32'h41);
+
+    chequear_reg("send ya se bajo solo al terminar, es WC, y new_rx sigue esperando", ADDR_CONTROL, 32'h2);
+
+    // limpiar new_rx es responsabilidad de quien instancia, se hace escribiendo un cero en el bit 1
+    escribir(ADDR_CONTROL, 32'h0);
+    chequear_reg("escribir cero en el bit 1 limpia new_rx", ADDR_CONTROL, 32'h0);
+    chequear_reg("pero el dato recibido se queda donde estaba", ADDR_DATOS_RX, 32'h41);
+
+    // segundo byte, para ver que el periferico no se traba despues del primero
+    escribir(ADDR_DATOS_TX, 32'h5A);
+    escribir(ADDR_CONTROL, 32'h1);
+    esperar_new_rx("un segundo byte tambien da la vuelta");
+    chequear_reg("y llega con su valor", ADDR_DATOS_RX, 32'h5A);
+    escribir(ADDR_CONTROL, 32'h0);
+
+    // el choque que el enunciado deja abierto, escribir send con el bit 1 en cero borra un byte sin leer
+    escribir(ADDR_DATOS_TX, 32'h37);
+    escribir(ADDR_CONTROL, 32'h1);
+    esperar_new_rx("llega un byte y queda esperando que lo lean");
+    escribir(ADDR_CONTROL, 32'h1);
+    chequear_reg("escribir solo send borra new_rx, por eso el arbitro tiene que componer la escritura", ADDR_CONTROL, 32'h1);
+
     $display("%0d pruebas, %0d fallos", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_periferico_uart termino con fallos");
     $finish;
