@@ -1,4 +1,4 @@
-module transmisor_uart (
+module transmisor_uart #(parameter WORD_MAXLEN = 12) (
   input logic clk,
   input logic rst,
   input logic [2:0] i_state,       // desde la fsm
@@ -7,6 +7,7 @@ module transmisor_uart (
   input logic i_letra_lista,       // pulso de un ciclo que acompaña a i_letra_state, desde M07
   input logic [2:0] i_intentos,    // intentos fallidos acumulados, desde M12_Contador-Intentos
   input logic [3:0] i_word_length, // longitud de la palabra, desde REG_Palabra-escogida
+  input logic [WORD_MAXLEN-1:0] i_mascara, // posiciones reveladas, desde M07_Comparador-letra
   input logic [31:0] i_rdata,      // bus de 32 bits compartido con PERIFERICO_UART
 
   output logic o_write_enable,
@@ -62,6 +63,7 @@ module transmisor_uart (
   logic pend_fin, pend_fin_next;
   logic [1:0] pend_letra_val;
   logic [2:0] pend_intentos_val;
+  logic [WORD_MAXLEN-1:0] pend_mascara_val;
   logic [2:0] pend_fin_causa;
 
   assign hay_pendiente = pend_fin | pend_letra | pend_ini;
@@ -98,6 +100,7 @@ module transmisor_uart (
     if (i_letra_lista) begin
       pend_letra_val <= i_letra_state;
       pend_intentos_val <= i_intentos;
+      pend_mascara_val <= i_mascara;
     end
     if (pulso_fin) pend_fin_causa <= i_state;
   end
@@ -105,9 +108,12 @@ module transmisor_uart (
   // 3. Máquina de estados: IDLE decide cuál pendiente atender (prioridad fin > letra > inicio),
   // LOAD_DATA/LOAD_CTRL/WAIT recorren la trama byte a byte contra el handshake de un bit `send`
   logic send_busy;
-  logic [1:0] cnt_byte;
-  logic [1:0] reg_len;
-  logic [7:0] reg_trama [0:2];
+  logic [2:0] cnt_byte;
+  logic [2:0] reg_len; // la trama de letra son 5 bytes, con dos bits no alcanzaba
+  logic [7:0] reg_trama [0:4];
+
+  logic [15:0] mascara_ext;
+  assign mascara_ext = {{(16-WORD_MAXLEN){1'b0}}, pend_mascara_val}; // la mascara viaja en dos bytes, poco significativo primero
 
   assign send_busy = i_rdata[BIT_SEND];
   assign estado_wait_libre = (estado == WAIT) && !send_busy;
@@ -129,8 +135,8 @@ module transmisor_uart (
   end
 
   always_ff @(posedge clk) begin
-    if (rst) cnt_byte <= 2'd0;
-    else if (consumir) cnt_byte <= 2'd0;
+    if (rst) cnt_byte <= 3'd0;
+    else if (consumir) cnt_byte <= 3'd0;
     else if (estado_wait_libre && (cnt_byte != reg_len - 1)) cnt_byte <= cnt_byte + 1'b1;
   end
 
@@ -140,19 +146,22 @@ module transmisor_uart (
       if (pend_fin) begin
         reg_trama[0] <= 8'h46; // "F"
         reg_trama[1] <= {5'b0, pend_fin_causa};
-        reg_len <= 2'd2;
+        reg_len <= 3'd2;
       end
       else if (pend_letra) begin
         reg_trama[0] <= 8'h4C; // "L"
         reg_trama[1] <= {6'b0, pend_letra_val};
         reg_trama[2] <= {5'b0, pend_intentos_val};
-        reg_len <= 2'd3;
+        // la pc solo debe mirar los primeros i_word_length bits, arriba de eso va el relleno que M07 deja en unos
+        reg_trama[3] <= mascara_ext[7:0];
+        reg_trama[4] <= mascara_ext[15:8];
+        reg_len <= 3'd5;
       end
       else begin // pend_ini
         reg_trama[0] <= 8'h49; // "I"
         reg_trama[1] <= {7'b0, i_modo};
         reg_trama[2] <= {4'b0, i_word_length};
-        reg_len <= 2'd3;
+        reg_len <= 3'd3;
       end
     end
   end
