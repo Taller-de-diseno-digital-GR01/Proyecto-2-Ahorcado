@@ -214,6 +214,48 @@ module tb_transmisor_uart;
     chequear_byte("arranca con la F", 0, 8'h46);
     chequear_byte("y lleva el estado que causo el fin", 1, 8'h03);
 
+    i_state_tb = SELECCION;
+    repeat (10) ciclo();
+
+    arrancar_trama();
+    i_state_tb = JUEGO;
+    esperar_trama(3);
+    arrancar_trama();
+    i_state_tb = PERDIO_TIEMPO;
+    esperar_trama(2);
+    chequear_byte("perder por tiempo manda su propia causa", 1, 8'h05);
+
+    // un evento que cae mientras todavia se manda la trama anterior no se puede perder
+    i_state_tb = SELECCION;
+    repeat (10) ciclo();
+    arrancar_trama();
+    i_state_tb = JUEGO;
+    ciclo();
+    ciclo();
+    pulso_letra(ACIERTO, 3'd1, 12'hFF0);
+    esperar_trama(8);
+    chequear_largo("la letra que llega durante la trama de inicio no se pierde", 8);
+    chequear_byte("primero sale la trama de inicio entera", 0, 8'h49);
+    chequear_byte("y despues arranca la de la letra", 3, 8'h4C);
+
+    // si caen letra y fin juntos, el fin manda
+    i_state_tb = SELECCION;
+    repeat (10) ciclo();
+    arrancar_trama();
+    i_state_tb = JUEGO;
+    esperar_trama(3);
+    arrancar_trama();
+    i_letra_state_tb = ACIERTO;
+    i_intentos_tb = 3'd4;
+    i_mascara_tb = 12'hFFF;
+    i_letra_lista_tb = 1'b1;
+    i_state_tb = GANO;
+    ciclo();
+    i_letra_lista_tb = 1'b0;
+    esperar_trama(7);
+    chequear_byte("con letra y fin a la vez, el fin sale primero", 0, 8'h46);
+    chequear_byte("y la letra sale despues, no se descarta", 2, 8'h4C);
+
     $display("%0d pruebas, %0d fallos", pruebas, errores);
     if (errores != 0) $fatal(1, "tb_transmisor_uart termino con fallos");
     $finish;
