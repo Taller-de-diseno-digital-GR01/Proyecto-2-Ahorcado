@@ -20,10 +20,9 @@ module transmisor_uart (
   localparam PERDIO_INTENTOS = 3'b100;
   localparam PERDIO_TIEMPO = 3'b101;
 
-  // TODO: mismo mapa de registros que usa receptor_uart.sv (bit0=send, bit1=new_rx),
-  // pendiente de confirmar contra el diseño real de PERIFERICO_UART
-  localparam ADDR_UART_CTRL = 2'b00;
-  localparam ADDR_UART_TX = 2'b01;
+  // El enunciado fija el registro de datos de transmision en addr_i=2'b00, la del control la elige el equipo
+  localparam ADDR_UART_CTRL = 2'b10;
+  localparam ADDR_UART_TX = 2'b00;
   localparam BIT_SEND = 0;
 
   localparam IDLE = 2'b00;
