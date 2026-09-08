@@ -1,0 +1,181 @@
+# Makefile para Windows (Git Bash / MSYS2), pensado para correr los testbenches del proyecto
+# sin depender de FreeBSD/gmake ni de un toolchain de FPGA instalado.
+#
+# Se basa en ./GNUmakefile (el flujo real del proyecto para la Basys3, mantenido por Mattio en
+# FreeBSD) y toma prestado el estilo de src/Makefile (Makefile de otro curso, para Tang Nano 9k,
+# solo como referencia de cómo estructurar los targets -- ese archivo no aplica a este proyecto,
+# la FPGA de este curso es la Basys3, no la Tang Nano 9k).
+#
+# No se llama "GNUmakefile" ni "Makefile" a propósito: GNU Make ya prioriza "GNUmakefile" sobre
+# "Makefile" al buscar el archivo por defecto, y ./GNUmakefile ya existe en la raíz del repo. Si
+# este archivo se llamara igual, "make" lo ignoraría en favor del otro. Por eso hay que invocarlo
+# explícito con -f:
+#
+#   make -f Makefile.windows sim TB=transmisor_uart
+#   make -f Makefile.windows test
+#
+# Requiere en el PATH (Git Bash hereda el PATH de Windows):
+#   - Icarus Verilog (iverilog, vvp)       -> https://bleyer.org/icarus/ (instalador para Windows)
+#   - GTKWave, opcional, solo para 'wave'  -> lo trae el mismo instalador de Icarus Verilog
+#   - yosys, opcional, solo para 'synth'   -> https://github.com/YosysHQ/oss-cad-suite-build
+#
+# La síntesis + bitstream + programación de la Basys3 (yosys + nextpnr-xilinx + prjxray, el
+# toolchain "openXC7" que usa ./GNUmakefile para no depender de Vivado) no tiene un build nativo
+# confiable para Windows todavía, así que esos targets no se replican acá: 'check-fpga-toolchain'
+# explica las dos alternativas (WSL o Vivado).
+
+DESIGN_DIR := src/design
+SIM_DIR    := src/sim
+BUILD_DIR  := src/build
+
+IVERILOG       := iverilog
+IVERILOG_FLAGS := -g2012
+VVP            := vvp
+GTKWAVE        := gtkwave
+VECDUMP        := vecdump
+YOSYS          := yosys
+
+DESIGN_SRCS := $(wildcard $(DESIGN_DIR)/*.sv)
+TB_SRCS     := $(wildcard $(SIM_DIR)/tb_*.sv)
+TBS         := $(patsubst $(SIM_DIR)/tb_%.sv,%,$(TB_SRCS))
+
+TB ?= $(firstword $(TBS))
+SYNTH_TOP ?= top
+
+VVP_OUT     := $(BUILD_DIR)/tb_$(TB).vvp
+VCD_OUT     := $(BUILD_DIR)/tb_$(TB).vcd
+SVG_OUT     := $(BUILD_DIR)/tb_$(TB).svg
+NETLIST_OUT := $(BUILD_DIR)/$(SYNTH_TOP)_synth.v
+SYNTH_LOG   := $(BUILD_DIR)/$(SYNTH_TOP)_synth.log
+
+.PHONY: all help list sim wave dump test synth clean check-tb check-tools check-fpga-toolchain \
+        bitstream program connect
+
+# Por defecto corre todos los testbenches; no arma bitstream (ver el comentario de arriba).
+all: test
+
+help:
+	@echo "make -f Makefile.windows sim  TB=<modulo>   compila y corre src/sim/tb_<modulo>.sv"
+	@echo "make -f Makefile.windows wave TB=<modulo>   corre la simulacion y abre GTKWave"
+	@echo "make -f Makefile.windows dump TB=<modulo> SIGS=sig1,sig2,...  exporta un SVG con vecdump"
+	@echo "make -f Makefile.windows test                corre todos los testbenches de $(SIM_DIR)"
+	@echo "make -f Makefile.windows synth SYNTH_TOP=<modulo>  sintetiza con yosys y revisa latches"
+	@echo "make -f Makefile.windows check-tools          revisa que iverilog/vvp/gtkwave/yosys esten en el PATH"
+	@echo "make -f Makefile.windows list                 lista los testbenches disponibles"
+	@echo "make -f Makefile.windows clean"
+	@echo ""
+	@echo "Testbenches disponibles: $(TBS)"
+	@echo "TB por defecto si no se indica: $(TB)"
+
+list:
+	@echo "Testbenches disponibles: $(TBS)"
+
+# Igual que en ./GNUmakefile: falla temprano si no hay ningun testbench (TB vacio). El ifeq/error
+# se evalua al parsear el Makefile, no al "ejecutar" este target.
+check-tb:
+ifeq ($(strip $(TB)),)
+	$(error No se encontro ningun testbench en $(SIM_DIR)/tb_*.sv)
+endif
+
+# Diagnostico de herramientas: iverilog/vvp son obligatorios para sim/wave/dump/test,
+# gtkwave y yosys son opcionales (solo hacen falta para 'wave'/'dump' y 'synth').
+check-tools:
+	@ok=1; \
+	for t in $(IVERILOG) $(VVP); do \
+		if command -v $$t >/dev/null 2>&1; then \
+			echo "OK    $$t"; \
+		else \
+			echo "FALTA $$t"; ok=0; \
+		fi; \
+	done; \
+	if command -v $(GTKWAVE) >/dev/null 2>&1; then \
+		echo "OK    $(GTKWAVE) (opcional, para 'wave')"; \
+	else \
+		echo "falta $(GTKWAVE) (opcional, solo hace falta para 'make wave')"; \
+	fi; \
+	if command -v $(YOSYS) >/dev/null 2>&1; then \
+		echo "OK    $(YOSYS) (opcional, para 'synth')"; \
+	else \
+		echo "falta $(YOSYS) (opcional, solo hace falta para 'make synth')"; \
+	fi; \
+	if [ $$ok -eq 0 ]; then \
+		echo ""; \
+		echo "Instalar Icarus Verilog para Windows: https://bleyer.org/icarus/"; \
+		echo "(el instalador ya trae iverilog, vvp y gtkwave; agregar su carpeta bin/ al PATH)"; \
+		exit 1; \
+	fi
+
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(VVP_OUT): $(DESIGN_SRCS) $(SIM_DIR)/tb_$(TB).sv | $(BUILD_DIR) check-tb check-tools
+	$(IVERILOG) $(IVERILOG_FLAGS) -o $@ $(DESIGN_SRCS) $(SIM_DIR)/tb_$(TB).sv
+
+sim: check-tb $(VVP_OUT)
+	cd $(BUILD_DIR) && $(VVP) $(notdir $(VVP_OUT))
+
+wave: sim
+	$(GTKWAVE) $(VCD_OUT) &
+
+dump: sim
+ifeq ($(strip $(SIGS)),)
+	$(error Uso: make -f Makefile.windows dump TB=<modulo> SIGS=sig1,sig2,...)
+endif
+	$(VECDUMP) $(VCD_OUT) -s $(SIGS) -o $(SVG_OUT)
+	@echo ".svg generado en $(SVG_OUT)"
+
+# Corre make sim para cada testbench en $(SIM_DIR), uno por uno, sin cortar en el primer fallo
+# (mismo criterio que 'test' en ./GNUmakefile).
+test: check-tb
+	@estado=0; \
+	for modulo in $(TBS); do \
+		echo "--> $$modulo"; \
+		"$(MAKE)" --no-print-directory -f Makefile.windows sim TB=$$modulo || estado=1; \
+	done; \
+	exit $$estado
+
+# Sintesis generica con yosys (sin nextpnr): sirve para revisar jerarquia y detectar latches
+# no intencionados sin necesitar el resto del toolchain de FPGA.
+synth: $(DESIGN_SRCS)
+	@command -v $(YOSYS) >/dev/null 2>&1 || { \
+		echo "ERROR: '$(YOSYS)' no esta en el PATH. Correr 'make -f Makefile.windows check-tools'."; \
+		exit 1; \
+	}
+	@mkdir -p $(BUILD_DIR)
+	@$(YOSYS) -p " \
+		read_verilog -sv $(DESIGN_SRCS); \
+		hierarchy -check -top $(SYNTH_TOP); \
+		proc; opt; \
+		prep -top $(SYNTH_TOP); \
+		opt_clean; \
+		stat; \
+		write_verilog $(NETLIST_OUT) \
+	" > $(SYNTH_LOG) 2>&1; status=$$?; \
+	if [ $$status -ne 0 ]; then \
+		cat $(SYNTH_LOG); \
+		echo ""; \
+		echo "ERROR: yosys fallo sintetizando '$(SYNTH_TOP)' (ver $(SYNTH_LOG))"; \
+		exit 1; \
+	fi; \
+	if grep "Latch inferred" $(SYNTH_LOG) | grep -qv "^No "; then \
+		echo "ERROR: yosys detecto latch(es) no intencionados en '$(SYNTH_TOP)':"; \
+		grep "Latch inferred" $(SYNTH_LOG) | grep -v "^No "; \
+		exit 1; \
+	fi; \
+	echo "Netlist generado en $(NETLIST_OUT)"
+
+# bitstream/program/connect existen solo para que "make -f Makefile.windows bitstream" (etc.) de
+# un mensaje claro en vez de "target not found" -- la Basys3 se sintetiza/programa con
+# ./GNUmakefile (FreeBSD/WSL), no desde acá. Ver el comentario del encabezado.
+check-fpga-toolchain:
+	@echo "La sintesis + bitstream + programacion de la Basys3 en este proyecto usa"
+	@echo "yosys + nextpnr-xilinx + prjxray (toolchain openXC7, ver ./GNUmakefile), sin Vivado."
+	@echo "Esa combinacion no tiene un build nativo confiable para Windows todavia. Opciones:"
+	@echo "  1) Instalar WSL (wsl --install) y correr ahi el flujo de ./GNUmakefile."
+	@echo "  2) Usar Vivado en Windows para generar el .bit, fuera del flujo de este proyecto."
+	@exit 1
+
+bitstream program connect: check-fpga-toolchain
+
+clean:
+	rm -rf $(BUILD_DIR)

@@ -44,6 +44,14 @@ module tb_transmisor_uart;
     initial clk = 1'b0;
     always #5 clk = ~clk;
 
+    // Volcado de ondas para GTKWave. Ruta relativa porque el target 'sim' del Makefile hace
+    // "cd src/build && vvp ..." antes de correr esto, así que vvp ya arranca con cwd=src/build/;
+    // si se pusiera "src/build/tb_transmisor_uart.vcd" acá, quedaría src/build/src/build/...
+    initial begin
+        $dumpfile("tb_transmisor_uart.vcd");
+        $dumpvars(0, tb_transmisor_uart);
+    end
+
     // Códigos de estado, mismos que docs/diseño/modulos/M13_FSM.md, h
     localparam SELECCION = 3'b000;
     localparam JUEGO = 3'b010;
