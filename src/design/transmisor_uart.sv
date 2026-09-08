@@ -5,7 +5,7 @@ module transmisor_uart (
   input logic i_modo,              // desde la fsm
   input logic [1:0] i_letra_state, // 00 fallo, 01 acierto, 10 repetida, desde M07_Comparador-letra
   input logic i_letra_lista,       // pulso de un ciclo que acompaña a i_letra_state, desde M07
-  input logic [2:0] i_try,         // intentos fallidos acumulados, desde M12_Contador-Intentos
+  input logic [2:0] i_intentos,    // intentos fallidos acumulados, desde M12_Contador-Intentos
   input logic [3:0] i_word_length, // longitud de la palabra, desde REG_Palabra-escogida
   input logic [31:0] i_rdata,      // bus de 32 bits compartido con PERIFERICO_UART
 
@@ -61,7 +61,7 @@ module transmisor_uart (
   logic pend_letra, pend_letra_next;
   logic pend_fin, pend_fin_next;
   logic [1:0] pend_letra_val;
-  logic [2:0] pend_try_val;
+  logic [2:0] pend_intentos_val;
   logic [2:0] pend_fin_causa;
 
   assign hay_pendiente = pend_fin | pend_letra | pend_ini;
@@ -97,7 +97,7 @@ module transmisor_uart (
     // valores capturados: se sobreescriben con el más reciente aunque el anterior siga sin atender
     if (i_letra_lista) begin
       pend_letra_val <= i_letra_state;
-      pend_try_val <= i_try;
+      pend_intentos_val <= i_intentos;
     end
     if (pulso_fin) pend_fin_causa <= i_state;
   end
@@ -145,7 +145,7 @@ module transmisor_uart (
       else if (pend_letra) begin
         reg_trama[0] <= 8'h4C; // "L"
         reg_trama[1] <= {6'b0, pend_letra_val};
-        reg_trama[2] <= {5'b0, pend_try_val};
+        reg_trama[2] <= {5'b0, pend_intentos_val};
         reg_len <= 2'd3;
       end
       else begin // pend_ini
