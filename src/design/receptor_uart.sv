@@ -11,9 +11,9 @@ module receptor_uart (
   output logic o_valid_w // habilitación de carga de esa letra
   );
 
-  // TODO: Revisar las direcciones cuando el frente de uart cierre el mapa de registros del periférico
-  localparam ADDR_CTRL = 2'b00;
-  localparam ADDR_DATOS_RX = 2'b10;
+  // TODO: Revisar ADDR_CTRL con el frente de uart, el enunciado no le fija direccion y M11 tiene que usar la misma
+  localparam ADDR_CTRL = 2'b10;
+  localparam ADDR_DATOS_RX = 2'b01; // el enunciado la fija asi, registro de datos 1 en addr_i=2'b01
   localparam BIT_NEW_RX = 1;
 
   localparam JUEGO = 3'b010;
