@@ -11,9 +11,9 @@ que no debe llegar a la lógica del juego.
 ## Entradas
 
 - `clk`, `rst`.
-- `bus 32b`: registros de control y datos del periférico UART, de ahí lee `new_rx` y el dato
-  recibido.
-- `state`: estado actual, desde `M13_FSM`.
+- `i_rdata[31:0]`: lo que devuelve `PERIFERICO_UART` en la dirección que este módulo le está
+  poniendo, de ahí saca el bit `new_rx` y el byte recibido. Llega pasando por `ARBITRO_UART`.
+- `i_state[2:0]`: estado actual, desde `M13_FSM`. De acá solo le interesa JUEGO.
 
 El dato no le llega por una flecha propia en el diagrama de tercer nivel, entra por el bus de 32
 bits que todo `CONTROL_JUEGO` comparte con `PERIFERICO_UART`.
@@ -22,9 +22,10 @@ bits que todo `CONTROL_JUEGO` comparte con `PERIFERICO_UART`.
 
 ## e) Salidas
 
-- `letra_in`: letra recibida, hacia `REG_Letra-in`.
-- `valid_w`: habilitación de carga de esa letra, hacia `REG_Letra-in`.
-- Hacia el bus, `write_enable_i`, `addr_i` y `wdata_i` durante los ciclos en que limpia `new_rx`.
+- `o_letra[7:0]`: letra recibida en ASCII, tal como salió del periférico, hacia `REG_Letra-in`.
+- `o_valid_w`: habilitación de carga de esa letra, hacia `REG_Letra-in`.
+- `o_addr[1:0]`, `o_write_enable`, `o_wdata[31:0]`: petición hacia el bus, que entra por la cara
+  del receptor de `ARBITRO_UART`.
 
 ---
 
@@ -43,10 +44,14 @@ de letras.
 De `M13_FSM` recibe `state`, y lo usa para decidir si la letra pasa o se bota.
 
 El módulo comparte el bus de 32 bits con `M11_Transmisor-UART`, que es quien transmite. Los dos
-acceden al mismo periférico, así que el arbitraje entre ambos tiene que quedar definido en el
-diseño de `PERIFERICO_UART` y en el instanciado de `CONTROL_JUEGO`. Este módulo nunca escribe el
-registro de datos de transmisión, solo el bit `new_rx` del de control, lo que reduce el choque a
-un único registro compartido.
+acceden al mismo periférico, y quien resuelve el choque es `ARBITRO_UART`, que le da prioridad
+absoluta a este módulo. Por eso el receptor se escribió como si el bus fuera solo suyo, no tiene
+entrada de concesión ni sabe esperar, su FSM avanza pase lo que pase.
+
+Este módulo nunca escribe el registro de datos de transmisión, solo el bit `new_rx` del de
+control. Aun así el choque existe, porque escribir ese registro con ceros también bajaría el
+`send` del transmisor. Esa parte la arregla el árbitro recomponiendo la palabra, y está explicada
+en su documento.
 
 ---
 
@@ -57,7 +62,7 @@ mantener la dirección del registro de control para poder leerlo.
 
 Cuando `new_rx` se levanta, hay un byte esperando. El módulo lo lee del registro de datos de
 recepción y le hace dos preguntas. Si el byte cae en el rango A-Z, y si el sistema está en JUEGO.
-Solo si las dos son ciertas levanta `valid_w` durante un ciclo, que es lo que hace que
+Solo si las dos son ciertas levanta `o_valid_w` durante un ciclo, que es lo que hace que
 `REG_Letra-in` cargue la letra.
 
 Pase lo que pase con esas dos preguntas, el módulo limpia `new_rx`. Ese detalle es importante. Si
@@ -93,7 +98,7 @@ descarta sin afectar la partida.
 
 Tabla de verdad principal del módulo:
 
-| `new_rx` | `en_rango` | `state = JUEGO` | `valid_w` | Limpia `new_rx` | Resultado |
+| `new_rx` | `en_rango` | `state = JUEGO` | `o_valid_w` | Limpia `new_rx` | Resultado |
 | -------- | ---------- | --------------- | --------- | --------------- | --------- |
 | `0`      | `x`        | `x`             | `0`       | no              | no hay dato |
 | `1`      | `0`        | `x`             | `0`       | sí              | byte no alfabético, se bota |
@@ -105,23 +110,24 @@ que pase con el byte.
 
 ### Secuencia de acceso al bus
 
-La lectura no es de un solo ciclo, porque hay que poner la dirección, muestrear `rdata_o` y
+La lectura no es de un solo ciclo, porque hay que poner la dirección, muestrear `i_rdata` y
 después escribir de vuelta el registro de control. Se resuelve con una FSM interna de tres
 estados, que no tiene nada que ver con la FSM principal del juego:
 
-| Estado actual | Condición    | Estado siguiente | `addr_i`        | `write_enable_i` |
+| Estado actual | Condición    | Estado siguiente | `o_addr`        | `o_write_enable` |
 | ------------- | ------------ | ---------------- | --------------- | ---------------- |
 | ESPERA        | `new_rx = 0` | ESPERA           | REG_CTRL        | `0`              |
 | ESPERA        | `new_rx = 1` | LEE              | REG_CTRL        | `0`              |
 | LEE           | siempre      | LIMPIA           | REG_DATOS_RX    | `0`              |
 | LIMPIA        | siempre      | ESPERA           | REG_CTRL        | `1`              |
 
-En LEE se muestrea el dato y se evalúa la tabla anterior, y ahí es donde sale el pulso `valid_w`.
+En LEE se muestrea el dato y se evalúa la tabla anterior, y ahí es donde sale el pulso `o_valid_w`.
 En LIMPIA se escribe el registro de control con `new_rx` en cero.
 
-El mapa exacto de direcciones de `addr_i[1:0]` lo define el diseño de `PERIFERICO_UART`, que es
-del frente de UART. Este módulo solo depende de que existan un registro de control con el bit
-`new_rx` y un registro de datos de recepción, no de en cuál dirección quedaron.
+El mapa de direcciones ya está cerrado y se documenta en `PERIFERICO_UART.md`. Este módulo usa
+`2'b10` para el registro de control y `2'b01` para el de datos de recepción, esa segunda la fija
+el enunciado. Los dos valores van como `localparam`, no como `parameter`, porque son parte fija
+del mapa de registros y ningún testbench necesita moverlos.
 
 ### Por qué sondeo y no interrupción
 
@@ -136,7 +142,7 @@ byte por sondear demasiado lento.
 
 ```mermaid
 flowchart LR
-    BUS(["rdata_o (bus 32b)"]) --> REG_RX["REG_RX<br/>registro de dato"]
+    BUS(["i_rdata (bus 32b)"]) --> REG_RX["REG_RX<br/>registro de dato"]
     BUS --> BIT_NRX["SEL_BIT<br/>new_rx"]
 
     REG_RX --> CMP_LO{"CMP >= 0x41"}
@@ -151,12 +157,12 @@ flowchart LR
     AND_RNG --> AND_VAL
     CMP_JG --> AND_VAL
 
-    AND_VAL --> OUT_VW(["valid_w"])
-    REG_RX --> OUT_LETRA(["letra_in"])
+    AND_VAL --> OUT_VW(["o_valid_w"])
+    REG_RX --> OUT_LETRA(["o_letra"])
 
-    FSM_BUS --> OUT_ADDR(["addr_i[1:0]"])
-    FSM_BUS --> OUT_WE(["write_enable_i"])
-    FSM_BUS --> OUT_WD(["wdata_i (new_rx = 0)"])
+    FSM_BUS --> OUT_ADDR(["o_addr[1:0]"])
+    FSM_BUS --> OUT_WE(["o_write_enable"])
+    FSM_BUS --> OUT_WD(["o_wdata (new_rx = 0)"])
 ```
 
 `clk` y `rst` entran a `REG_RX` y a `FSM_BUS` aunque no se dibujen.
@@ -174,10 +180,9 @@ Conexiones del instanciado dentro de `CONTROL_JUEGO`:
 - `clk`, al reloj global de 100 MHz.
 - `rst`, a BTN_RST ya sincronizado.
 - `state`, desde `M13_FSM`.
-- `rdata_o[31:0]`, desde `PERIFERICO_UART`, compartido con `M11_Transmisor-UART`.
-- `addr_i[1:0]`, `write_enable_i`, `wdata_i[31:0]`, hacia `PERIFERICO_UART`, compartidos con
-  `M11_Transmisor-UART` y arbitrados en el instanciado de `CONTROL_JUEGO`.
-- `letra_in`, `valid_w`, hacia `REG_Letra-in`.
+- `i_rdata[31:0]`, desde la cara del receptor de `ARBITRO_UART`.
+- `o_addr[1:0]`, `o_write_enable`, `o_wdata[31:0]`, hacia la cara del receptor de `ARBITRO_UART`.
+- `o_letra[7:0]`, `o_valid_w`, hacia `REG_Letra-in`.
 
 Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño que
 se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.
