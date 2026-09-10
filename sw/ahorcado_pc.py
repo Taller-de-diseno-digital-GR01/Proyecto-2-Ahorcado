@@ -3,10 +3,13 @@
 # Toda la lógica del juego vive en la FPGA, acá solo se manda la tecla y se pinta lo que llega.
 
 import argparse
+import select
 import sys
 
 import enlace
+import partida
 import protocolo
+import terminal
 
 
 def opciones():
@@ -26,6 +29,33 @@ def listar():
         print("%s  %s" % (puerto.device, puerto.description))
 
 
+def jugar(puerto):
+    decodificador = protocolo.Decodificador()
+    juego = partida.Partida()
+    with terminal.modo_crudo():
+        while True:
+            listos, _, _ = select.select([sys.stdin, puerto], [], [])
+            if sys.stdin in listos and not tecla(puerto, juego):
+                return
+            if puerto in listos:
+                for evento in decodificador.alimentar(puerto.read(64)):
+                    juego.aplicar(evento)
+            print(juego.fase, "".join(juego.patron), juego.restantes, juego.erradas, "\r")
+
+
+def tecla(puerto, juego):
+    """Manda la letra si viene al caso, y devuelve False cuando el jugador quiere salir."""
+    pulsada = terminal.leer_tecla()
+    if pulsada in ("", terminal.ESCAPE, terminal.FIN_DE_ARCHIVO):
+        return False
+    byte = protocolo.codificar_letra(pulsada)
+    # fuera de partida la FPGA descarta el byte igual, mandarlo solo descuadraría la cola de enviadas
+    if byte is not None and juego.fase == partida.JUGANDO:
+        puerto.write(byte)
+        juego.letra_enviada(pulsada.upper())
+    return True
+
+
 def main():
     args = opciones()
     if args.lista:
@@ -36,12 +66,13 @@ def main():
     except enlace.ErrorEnlace as error:
         print("Error, %s" % error, file=sys.stderr)
         return 1
-    print("Escuchando %s a %d baudios, Ctrl-C para salir." % (puerto.port, args.baudios))
-    decodificador = protocolo.Decodificador()
-    while True:
-        datos = puerto.read(64)
-        for evento in decodificador.alimentar(datos):
-            print(evento)
+    try:
+        jugar(puerto)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        puerto.close()
+    return 0
 
 
 if __name__ == "__main__":
