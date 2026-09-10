@@ -1,23 +1,23 @@
 // Multiplexa el bus de 32 bits entre el receptor y el transmisor, que son dos maestros sobre un periferico de un solo puerto
-module arbitro_uart (
+module arbitro_uart #(parameter WIDTH=32) (
   // Cara del receptor, M10. Tiene prioridad absoluta porque usa el bus 3 ciclos de cada 8640 y no sabe esperar
   input logic [1:0] i_rx_addr,
   input logic i_rx_we,
-  input logic [31:0] i_rx_wdata,
-  output logic [31:0] o_rx_rdata,
+  input logic [WIDTH-1:0] i_rx_wdata,
+  output logic [WIDTH-1:0] o_rx_rdata,
 
   // Cara del transmisor, M11. Aguanta demora sin perder eventos, para eso tiene sus banderas pendientes
   input logic [1:0] i_tx_addr,
   input logic i_tx_we,
-  input logic [31:0] i_tx_wdata,
-  output logic [31:0] o_tx_rdata,
+  input logic [WIDTH-1:0] i_tx_wdata,
+  output logic [WIDTH-1:0] o_tx_rdata,
   output logic o_tx_bus_libre,
 
   // Cara del periferico
   output logic [1:0] o_addr,
   output logic o_we,
-  output logic [31:0] o_wdata,
-  input logic [31:0] i_rdata
+  output logic [WIDTH-1:0] o_wdata,
+  input logic [WIDTH-1:0] i_rdata
   );
 
   localparam logic [1:0] ADDR_CONTROL = 2'b10;
@@ -33,13 +33,14 @@ module arbitro_uart (
 
   assign o_tx_bus_libre = !rx_pide;
 
-  // Cada maestro escribe el control pensando solo en su bit y deja el ajeno en cero, que lo borraria.
-  // Se rearma la palabra rescatando el bit del otro de la lectura viva, que es del mismo ciclo porque el
-  // rdata del periferico es combinacional respecto a la direccion y no depende de wdata.
-  logic [31:0] wdata_control;
+  // Se rearma la palabra rescatando el bit del otro de la lectura live, que es del mismo ciclo porque el
+  logic [WIDTH-1:0] wdata_control;
   assign wdata_control = {30'b0,
                           rx_pide ? i_rx_wdata[BIT_NEW_RX] : i_rdata[BIT_NEW_RX],
                           rx_pide ? i_rdata[BIT_SEND] : i_tx_wdata[BIT_SEND]};
+                          // wdata_controll es 30 bits + i_rx_wdata[BIT_NEW_RX] + i_rdata[BIT_SEND] si rx_pide == 1
+                          // wdata_controll es 30 bits + i_rdata[BIT_NEW_RX] + i_tx_data[BIT_SEND] si rx_pide == 0
+                          // Ya sumado son 32 bits entonces está bien porque wdata_control son 32 bits.
 
   always_comb begin
     if (rx_pide) begin
@@ -55,14 +56,14 @@ module arbitro_uart (
     else begin
       o_addr = ADDR_CONTROL; // en reposo se deja apuntando al control, que es lo que los dos quieren leer
       o_we = 1'b0;
-      o_wdata = 32'b0;
+      o_wdata = WIDTH'b0;
     end
 
     if (o_we && o_addr == ADDR_CONTROL) o_wdata = wdata_control;
   end
 
   // Al que no tiene el bus se le devuelven ceros, si no leeria el registro ajeno creyendo que es el control
-  assign o_rx_rdata = (rx_pide || !tx_pide) ? i_rdata : 32'b0;
-  assign o_tx_rdata = rx_pide ? 32'b0 : i_rdata;
+  assign o_rx_rdata = (rx_pide || !tx_pide) ? i_rdata : WIDTH'b0;
+  assign o_tx_rdata = rx_pide ? WIDTH'b0 : i_rdata;
 
 endmodule

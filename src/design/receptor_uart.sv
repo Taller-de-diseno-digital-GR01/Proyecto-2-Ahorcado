@@ -1,13 +1,13 @@
-module receptor_uart (
+module receptor_uart #(parameter WIDTH=32) (
   input logic clk,
   input logic rst,
-  input logic [31:0] i_rdata, // lo que devuelve el periférico uart en la dirección que le estoy poniendo
+  input logic [WIDTH-1:0] i_rdata, // lo que devuelve el periférico uart en la dirección que le estoy poniendo
   input logic [2:0] i_state, // desde la fsm, de acá solo me interesa JUEGO
 
   output logic [1:0] o_addr,
   output logic o_write_enable,
-  output logic [31:0] o_wdata,
-  output logic [7:0] o_letra, // hacia REG_Letra-in
+  output logic [WIDTH-1:0] o_wdata,
+  output logic [(WIDTH/4)-1:0] o_letra, // hacia REG_Letra-in
   output logic o_valid_w // habilitación de carga de esa letra
   );
 
@@ -26,9 +26,9 @@ module receptor_uart (
   logic new_rx, en_rango;
 
   assign new_rx = i_rdata[BIT_NEW_RX]; // solo vale mientras o_addr esté apuntando al registro de control
-  assign en_rango = (i_rdata[7:0] >= 8'h41) && (i_rdata[7:0] <= 8'h5A); // A-Z, solo mayúsculas
+  assign en_rango = (i_rdata[(WIDTH/4)-1:0] >= 8'h41) && (i_rdata[(WIDTH/4)-1:0] <= 8'h5A); // A-Z, solo mayúsculas
 
-  // 1. Sondeo del periférico, tres ciclos por byte contra los 87 us que tarda uno a 115200 baudios
+  // 1. Sondeo del periférico, tres ciclos por byte contra los 8(WIDTH/4)-1 us que tarda uno a 115200 baudios
   always_ff @(posedge clk) begin
     o_valid_w <= 1'b0;
     if (rst) begin
@@ -41,7 +41,7 @@ module receptor_uart (
         // Acá se botan las letras que llegan en selección de modo o mostrando resultado, sin tocar la partida
         LEE: begin
           estado <= LIMPIA;
-          o_letra <= i_rdata[7:0];
+          o_letra <= i_rdata[(WIDTH/4)-1:0];
           o_valid_w <= en_rango && (i_state == JUEGO);
         end
         // Limpia a new_rx, pase lo que pase con el byte, si no el receptor queda trabado y no recibe nunca más
@@ -55,7 +55,7 @@ module receptor_uart (
   always_comb begin
     o_addr = ADDR_CTRL;
     o_write_enable = 1'b0;
-    o_wdata = 32'b0; // escribir ceros baja new_rx y de paso no pulsa el send del transmisor
+    o_wdata = WIDTH'b0; // escribir ceros baja new_rx y de paso no pulsa el send del transmisor
     case (estado)
       LEE: o_addr = ADDR_DATOS_RX;
       LIMPIA: o_write_enable = 1'b1;

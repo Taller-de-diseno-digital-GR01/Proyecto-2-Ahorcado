@@ -3,17 +3,17 @@ module transmisor_uart #(parameter WORD_MAXLEN = 12) (
   input logic rst,
   input logic [2:0] i_state,       // desde la fsm
   input logic i_modo,              // desde la fsm
-  input logic [1:0] i_letra_state, // 00 fallo, 01 acierto, 10 repetida, desde M07_Comparador-letra
-  input logic i_letra_lista,       // pulso de un ciclo que acompaña a i_letra_state, desde M07
+  input logic [1:0] i_letra_state, // 00 fallo, 01 acierto, 10 repetida, desde M0(WIDTH/4)-1_Comparador-letra
+  input logic i_letra_lista,       // pulso de un ciclo que acompaña a i_letra_state, desde M0(WIDTH/4)-1
   input logic [2:0] i_intentos,    // intentos fallidos acumulados, desde M12_Contador-Intentos
   input logic [3:0] i_word_length, // longitud de la palabra, desde REG_Palabra-escogida
-  input logic [WORD_MAXLEN-1:0] i_mascara, // posiciones reveladas, desde M07_Comparador-letra
-  input logic [31:0] i_rdata,      // bus de 32 bits compartido con PERIFERICO_UART
+  input logic [WORD_MAXLEN-1:0] i_mascara, // posiciones reveladas, desde M0(WIDTH/4)-1_Comparador-letra
+  input logic [WIDTH-1:0] i_rdata,      // bus de WIDTH bits compartido con PERIFERICO_UART
   input logic i_bus_libre,         // desde el arbitro, el receptor tiene prioridad y este se aguanta
 
   output logic o_write_enable,
   output logic [1:0] o_addr,
-  output logic [31:0] o_wdata
+  output logic [WIDTH-1:0] o_wdata
   );
 
   // Códigos de estado de la FSM principal (docs/diseño/modulos/M13_FSM.md, h)
@@ -111,7 +111,7 @@ module transmisor_uart #(parameter WORD_MAXLEN = 12) (
   logic send_busy;
   logic [2:0] cnt_byte;
   logic [2:0] reg_len; // la trama de letra son 5 bytes, con dos bits no alcanzaba
-  logic [7:0] reg_trama [0:4];
+  logic [(WIDTH/4)-1:0] reg_trama [0:4];
 
   logic [15:0] mascara_ext;
   assign mascara_ext = {{(16-WORD_MAXLEN){1'b0}}, pend_mascara_val}; // la mascara viaja en dos bytes, poco significativo primero
@@ -153,14 +153,14 @@ module transmisor_uart #(parameter WORD_MAXLEN = 12) (
         reg_trama[0] <= 8'h4C; // "L"
         reg_trama[1] <= {6'b0, pend_letra_val};
         reg_trama[2] <= {5'b0, pend_intentos_val};
-        // la pc solo debe mirar los primeros i_word_length bits, arriba de eso va el relleno que M07 deja en unos
-        reg_trama[3] <= mascara_ext[7:0];
+        // la pc solo debe mirar los primeros i_word_length bits, arriba de eso va el relleno que M0(WIDTH/4)-1 deja en unos
+        reg_trama[3] <= mascara_ext[(WIDTH/4)-1:0];
         reg_trama[4] <= mascara_ext[15:8];
         reg_len <= 3'd5;
       end
       else begin // pend_ini
         reg_trama[0] <= 8'h49; // "I"
-        reg_trama[1] <= {7'b0, i_modo};
+        reg_trama[1] <= {(WIDTH/4)-1'b0, i_modo};
         reg_trama[2] <= {4'b0, i_word_length};
         reg_len <= 3'd3;
       end
@@ -171,7 +171,7 @@ module transmisor_uart #(parameter WORD_MAXLEN = 12) (
   always_comb begin
     o_write_enable = 1'b0;
     o_addr = ADDR_UART_CTRL;
-    o_wdata = 32'b0;
+    o_wdata = WIDTH'b0;
     case (estado)
       LOAD_DATA: begin
         o_addr = ADDR_UART_TX;
@@ -180,7 +180,7 @@ module transmisor_uart #(parameter WORD_MAXLEN = 12) (
       end
       LOAD_CTRL: begin
         o_addr = ADDR_UART_CTRL;
-        o_wdata = 32'h1; // bit 0 = send
+        o_wdata = WIDTH'h1; // bit 0 = send
         o_write_enable = 1'b1;
       end
       default: ; // IDLE y WAIT no escriben
