@@ -1,6 +1,3 @@
-# Pintado de la pantalla, ver docs/diseño/APP_PC.md
-# Todo lo que se muestra sale de lo que la FPGA ya mandó, salvo la resta de intentos restantes.
-
 import dibujo
 import partida
 import protocolo
@@ -16,9 +13,9 @@ RESULTADOS = {
 }
 
 FINALES = {
-    protocolo.GANO: ("GANASTE", "verde"),
-    protocolo.PERDIO_INTENTOS: ("PERDISTE, se acabaron los intentos", "rojo"),
-    protocolo.PERDIO_TIEMPO: ("PERDISTE, se acabó el tiempo", "rojo"),
+    protocolo.GANO: ("VICTORIA", "verde"),
+    protocolo.PERDIO_INTENTOS: ("DERROTA, se acabaron los intentos", "rojo"),
+    protocolo.PERDIO_TIEMPO: ("DERROTA, se acabó el tiempo", "rojo"),
 }
 
 

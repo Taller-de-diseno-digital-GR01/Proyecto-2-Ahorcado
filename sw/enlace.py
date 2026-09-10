@@ -1,4 +1,5 @@
-# Apertura del puerto serial contra la Basys 3, ver docs/diseño/APP_PC.md
+# AQUÍ se hace la conexión con la fpga. Queda pendiente verificar que esta conexión funcione bien con mi FreeBSD porque hay una situación de drivers rara.
+# En linux funciona bien :+1:
 
 import serial
 from serial.tools import list_ports
@@ -8,7 +9,7 @@ VID_FTDI = 0x0403
 PID_FT2232 = 0x6010
 
 
-class ErrorEnlace(Exception):
+class ErrorEnlace(Exception): # Custom, es para cuando NO se conecta. Probablemente lo conectemos con el make
     pass
 
 

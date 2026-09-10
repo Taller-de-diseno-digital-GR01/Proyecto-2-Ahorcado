@@ -4,7 +4,7 @@
 import os
 import sys
 
-MUNECO = [
+MUNECO = [ # TODO: Revisar que esto sirva (JOE)
     ["  ┌────┐ ", "  │      ", "  │      ", "  │      ", "  │      ", "──┴──    "],
     ["  ┌────┐ ", "  │    │ ", "  │      ", "  │      ", "  │      ", "──┴──    "],
     ["  ┌────┐ ", "  │    │ ", "  │    o ", "  │      ", "  │      ", "──┴──    "],
@@ -26,7 +26,6 @@ NORMAL = "\x1b[0m"
 
 
 def hay_color():
-    # NO_COLOR es la convención de siempre, y con la salida redirigida los escapes estorban
     return sys.stdout.isatty() and "NO_COLOR" not in os.environ
 
 

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 # Terminal remota del ahorcado, ver docs/diseño/APP_PC.md
-# Toda la lógica del juego vive en la FPGA, acá solo se manda la tecla y se pinta lo que llega.
-
 import argparse
 import select
-import sys
+import sys # TODO: Revisar que esto funcione en windows
 
 import enlace
 import partida

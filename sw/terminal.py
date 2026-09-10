@@ -1,6 +1,6 @@
-# Manejo del teclado en modo crudo, ver docs/diseño/APP_PC.md
-# Sin esto habría que darle Enter a cada letra, y la FPGA responde tecla por tecla.
-
+# raw inputs
+# Leer https://docs.python.org/3/library/termios.html
+# Leer https://docs.python.org/3/library/contextlib.html
 import sys
 import termios
 import tty
@@ -18,7 +18,7 @@ def modo_crudo(flujo=sys.stdin):
         return
     guardado = termios.tcgetattr(flujo)
     try:
-        tty.setcbreak(flujo.fileno())  # cbreak y no raw, así Ctrl-C sigue siendo Ctrl-C
+        tty.setcbreak(flujo.fileno())  # Ctrl-C
         yield
     finally:
         termios.tcsetattr(flujo, termios.TCSADRAIN, guardado)
