@@ -4,6 +4,7 @@
 
 from collections import namedtuple
 
+# Nombres resumidos
 CAB_INICIO = 0x49  # "I"
 CAB_LETRA = 0x4C   # "L"
 CAB_FIN = 0x46     # "F"
@@ -39,7 +40,7 @@ def _armar(cabecera, cuerpo):
     return Fin(causa=cuerpo[0])
 
 
-class Decodificador:
+class Decodificador: # claude
     """Máquina de estados sobre el flujo de bytes, porque las tramas son de largo variable."""
 
     def __init__(self):

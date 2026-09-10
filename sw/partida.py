@@ -1,6 +1,3 @@
-# Espejo de lo que la FPGA ya decidió, ver docs/diseño/APP_PC.md
-# Acá no se decide nada de la partida, solo se guarda lo último que dijo cada trama.
-
 from collections import deque
 
 import protocolo
