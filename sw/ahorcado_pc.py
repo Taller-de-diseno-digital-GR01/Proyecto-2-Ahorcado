@@ -10,6 +10,7 @@ import enlace
 import partida
 import protocolo
 import terminal
+import vista
 
 
 def opciones():
@@ -33,6 +34,7 @@ def jugar(puerto):
     decodificador = protocolo.Decodificador()
     juego = partida.Partida()
     with terminal.modo_crudo():
+        vista.dibujar(juego)
         while True:
             listos, _, _ = select.select([sys.stdin, puerto], [], [])
             if sys.stdin in listos and not tecla(puerto, juego):
@@ -40,7 +42,7 @@ def jugar(puerto):
             if puerto in listos:
                 for evento in decodificador.alimentar(puerto.read(64)):
                     juego.aplicar(evento)
-            print(juego.fase, "".join(juego.patron), juego.restantes, juego.erradas, "\r")
+                vista.dibujar(juego)
 
 
 def tecla(puerto, juego):
