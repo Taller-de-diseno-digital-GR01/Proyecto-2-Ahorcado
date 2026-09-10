@@ -3,7 +3,8 @@
 Este archivo junta, en un solo documento y en orden, todo el diseño modular del proyecto: los
 tres niveles de diagramas (`docs/diseño/diagramas/nivel01.md`, `nivel02.md`, `nivel03.md`) y el
 diseño detallado de cada uno de los trece módulos (`docs/diseño/modulos/M01_*.md` a
-`M13_FSM.md`).
+`M13_FSM.md`), más los dos bloques del subsistema UART que no llevan número de módulo,
+`PERIFERICO_UART.md` y `ARBITRO_UART.md`.
 
 ---
 
@@ -2794,9 +2795,9 @@ que no debe llegar a la lógica del juego.
 ## Entradas
 
 - `clk`, `rst`.
-- `bus 32b`: registros de control y datos del periférico UART, de ahí lee `new_rx` y el dato
-  recibido.
-- `state`: estado actual, desde `M13_FSM`.
+- `i_rdata[31:0]`: lo que devuelve `PERIFERICO_UART` en la dirección que este módulo le está
+  poniendo, de ahí saca el bit `new_rx` y el byte recibido. Llega pasando por `ARBITRO_UART`.
+- `i_state[2:0]`: estado actual, desde `M13_FSM`. De acá solo le interesa JUEGO.
 
 El dato no le llega por una flecha propia en el diagrama de tercer nivel, entra por el bus de 32
 bits que todo `CONTROL_JUEGO` comparte con `PERIFERICO_UART`.
@@ -2805,9 +2806,10 @@ bits que todo `CONTROL_JUEGO` comparte con `PERIFERICO_UART`.
 
 ## e) Salidas
 
-- `letra_in`: letra recibida, hacia `REG_Letra-in`.
-- `valid_w`: habilitación de carga de esa letra, hacia `REG_Letra-in`.
-- Hacia el bus, `write_enable_i`, `addr_i` y `wdata_i` durante los ciclos en que limpia `new_rx`.
+- `o_letra[7:0]`: letra recibida en ASCII, tal como salió del periférico, hacia `REG_Letra-in`.
+- `o_valid_w`: habilitación de carga de esa letra, hacia `REG_Letra-in`.
+- `o_addr[1:0]`, `o_write_enable`, `o_wdata[31:0]`: petición hacia el bus, que entra por la cara
+  del receptor de `ARBITRO_UART`.
 
 ---
 
@@ -2826,10 +2828,14 @@ de letras.
 De `M13_FSM` recibe `state`, y lo usa para decidir si la letra pasa o se bota.
 
 El módulo comparte el bus de 32 bits con `M11_Transmisor-UART`, que es quien transmite. Los dos
-acceden al mismo periférico, así que el arbitraje entre ambos tiene que quedar definido en el
-diseño de `PERIFERICO_UART` y en el instanciado de `CONTROL_JUEGO`. Este módulo nunca escribe el
-registro de datos de transmisión, solo el bit `new_rx` del de control, lo que reduce el choque a
-un único registro compartido.
+acceden al mismo periférico, y quien resuelve el choque es `ARBITRO_UART`, que le da prioridad
+absoluta a este módulo. Por eso el receptor se escribió como si el bus fuera solo suyo, no tiene
+entrada de concesión ni sabe esperar, su FSM avanza pase lo que pase.
+
+Este módulo nunca escribe el registro de datos de transmisión, solo el bit `new_rx` del de
+control. Aun así el choque existe, porque escribir ese registro con ceros también bajaría el
+`send` del transmisor. Esa parte la arregla el árbitro recomponiendo la palabra, y está explicada
+en su documento.
 
 ---
 
@@ -2840,7 +2846,7 @@ mantener la dirección del registro de control para poder leerlo.
 
 Cuando `new_rx` se levanta, hay un byte esperando. El módulo lo lee del registro de datos de
 recepción y le hace dos preguntas. Si el byte cae en el rango A-Z, y si el sistema está en JUEGO.
-Solo si las dos son ciertas levanta `valid_w` durante un ciclo, que es lo que hace que
+Solo si las dos son ciertas levanta `o_valid_w` durante un ciclo, que es lo que hace que
 `REG_Letra-in` cargue la letra.
 
 Pase lo que pase con esas dos preguntas, el módulo limpia `new_rx`. Ese detalle es importante. Si
@@ -2876,7 +2882,7 @@ descarta sin afectar la partida.
 
 Tabla de verdad principal del módulo:
 
-| `new_rx` | `en_rango` | `state = JUEGO` | `valid_w` | Limpia `new_rx` | Resultado |
+| `new_rx` | `en_rango` | `state = JUEGO` | `o_valid_w` | Limpia `new_rx` | Resultado |
 | -------- | ---------- | --------------- | --------- | --------------- | --------- |
 | `0`      | `x`        | `x`             | `0`       | no              | no hay dato |
 | `1`      | `0`        | `x`             | `0`       | sí              | byte no alfabético, se bota |
@@ -2888,23 +2894,24 @@ que pase con el byte.
 
 ### Secuencia de acceso al bus
 
-La lectura no es de un solo ciclo, porque hay que poner la dirección, muestrear `rdata_o` y
+La lectura no es de un solo ciclo, porque hay que poner la dirección, muestrear `i_rdata` y
 después escribir de vuelta el registro de control. Se resuelve con una FSM interna de tres
 estados, que no tiene nada que ver con la FSM principal del juego:
 
-| Estado actual | Condición    | Estado siguiente | `addr_i`        | `write_enable_i` |
-| ------------- | ------------ | ----------------- | --------------- | ----------------- |
-| ESPERA        | `new_rx = 0` | ESPERA             | REG_CTRL        | `0`               |
-| ESPERA        | `new_rx = 1` | LEE                | REG_CTRL        | `0`               |
-| LEE           | siempre      | LIMPIA             | REG_DATOS_RX    | `0`               |
-| LIMPIA        | siempre      | ESPERA             | REG_CTRL        | `1`               |
+| Estado actual | Condición    | Estado siguiente | `o_addr`        | `o_write_enable` |
+| ------------- | ------------ | ---------------- | --------------- | ---------------- |
+| ESPERA        | `new_rx = 0` | ESPERA           | REG_CTRL        | `0`              |
+| ESPERA        | `new_rx = 1` | LEE              | REG_CTRL        | `0`              |
+| LEE           | siempre      | LIMPIA           | REG_DATOS_RX    | `0`              |
+| LIMPIA        | siempre      | ESPERA           | REG_CTRL        | `1`              |
 
-En LEE se muestrea el dato y se evalúa la tabla anterior, y ahí es donde sale el pulso `valid_w`.
+En LEE se muestrea el dato y se evalúa la tabla anterior, y ahí es donde sale el pulso `o_valid_w`.
 En LIMPIA se escribe el registro de control con `new_rx` en cero.
 
-El mapa exacto de direcciones de `addr_i[1:0]` lo define el diseño de `PERIFERICO_UART`, que es
-del frente de UART. Este módulo solo depende de que existan un registro de control con el bit
-`new_rx` y un registro de datos de recepción, no de en cuál dirección quedaron.
+El mapa de direcciones ya está cerrado y se documenta en `PERIFERICO_UART.md`. Este módulo usa
+`2'b10` para el registro de control y `2'b01` para el de datos de recepción, esa segunda la fija
+el enunciado. Los dos valores van como `localparam`, no como `parameter`, porque son parte fija
+del mapa de registros y ningún testbench necesita moverlos.
 
 ### Por qué sondeo y no interrupción
 
@@ -2919,7 +2926,7 @@ byte por sondear demasiado lento.
 
 ```mermaid
 flowchart LR
-    BUS(["rdata_o (bus 32b)"]) --> REG_RX["REG_RX<br/>registro de dato"]
+    BUS(["i_rdata (bus 32b)"]) --> REG_RX["REG_RX<br/>registro de dato"]
     BUS --> BIT_NRX["SEL_BIT<br/>new_rx"]
 
     REG_RX --> CMP_LO{"CMP >= 0x41"}
@@ -2934,12 +2941,12 @@ flowchart LR
     AND_RNG --> AND_VAL
     CMP_JG --> AND_VAL
 
-    AND_VAL --> OUT_VW(["valid_w"])
-    REG_RX --> OUT_LETRA(["letra_in"])
+    AND_VAL --> OUT_VW(["o_valid_w"])
+    REG_RX --> OUT_LETRA(["o_letra"])
 
-    FSM_BUS --> OUT_ADDR(["addr_i[1:0]"])
-    FSM_BUS --> OUT_WE(["write_enable_i"])
-    FSM_BUS --> OUT_WD(["wdata_i (new_rx = 0)"])
+    FSM_BUS --> OUT_ADDR(["o_addr[1:0]"])
+    FSM_BUS --> OUT_WE(["o_write_enable"])
+    FSM_BUS --> OUT_WD(["o_wdata (new_rx = 0)"])
 ```
 
 `clk` y `rst` entran a `REG_RX` y a `FSM_BUS` aunque no se dibujen.
@@ -2957,10 +2964,9 @@ Conexiones del instanciado dentro de `CONTROL_JUEGO`:
 - `clk`, al reloj global de 100 MHz.
 - `rst`, a BTN_RST ya sincronizado.
 - `state`, desde `M13_FSM`.
-- `rdata_o[31:0]`, desde `PERIFERICO_UART`, compartido con `M11_Transmisor-UART`.
-- `addr_i[1:0]`, `write_enable_i`, `wdata_i[31:0]`, hacia `PERIFERICO_UART`, compartidos con
-  `M11_Transmisor-UART` y arbitrados en el instanciado de `CONTROL_JUEGO`.
-- `letra_in`, `valid_w`, hacia `REG_Letra-in`.
+- `i_rdata[31:0]`, desde la cara del receptor de `ARBITRO_UART`.
+- `o_addr[1:0]`, `o_write_enable`, `o_wdata[31:0]`, hacia la cara del receptor de `ARBITRO_UART`.
+- `o_letra[7:0]`, `o_valid_w`, hacia `REG_Letra-in`.
 
 Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño que
 se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.
@@ -2977,191 +2983,245 @@ M11_Transmisor-UART
 
 ```mermaid
 flowchart LR
-    IN_MODO(["modo (de M13_FSM)"]) --> REG_FRAME["REG_TRAMA<br/>registro"]
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>cuál trama toca enviar"]
-    DEC_ST --> REG_FRAME
-    IN_LST(["letra_state (de M07)"]) --> REG_FRAME
-    IN_LST --> DEC_ST
-    IN_TRY(["try (de M12)"]) --> REG_FRAME
-    IN_LEN(["word_length (de REG_W)"]) --> REG_FRAME
-    REG_FRAME --> MUX1{{"MUX<br/>selección de campo"}}
+    IN_STATE(["i_state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>cuál trama toca enviar"]
+    IN_MODO(["i_modo (de M13_FSM)"]) --> REG_FRAME["REG_TRAMA<br/>registro"]
+    DEC_ST --> PEND["BANDERAS_PENDIENTE<br/>ini / letra / fin"]
+    IN_LST(["i_letra_state, i_letra_lista (de M07)"]) --> PEND
+    IN_LST --> REG_FRAME
+    IN_MASK(["i_mascara (de M07)"]) --> REG_FRAME
+    IN_TRY(["i_intentos (de M12)"]) --> REG_FRAME
+    IN_LEN(["i_word_length (de REG_Palabra-escogida)"]) --> REG_FRAME
+    PEND --> FSM["FSM_BUS<br/>IDLE / LOAD_DATA / LOAD_CTRL / WAIT"]
+    IN_LIBRE(["i_bus_libre (de ARBITRO_UART)"]) --> FSM
+    IN_RD(["i_rdata (de ARBITRO_UART)"]) --> FSM
+    PEND --> REG_FRAME
+    REG_FRAME --> MUX1{{"MUX<br/>selección de byte"}}
     CNT_BYTE["CONT_BYTE<br/>contador"] --> MUX1
-    MUX1 --> OUT_UART(["modo/letra_state/Resultado/w_word/Intentos (a PERIFERICO_UART)"])
+    FSM --> CNT_BYTE
+    MUX1 --> OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
+    FSM --> OUT_BUS
 ```
 
 ## c) Objetivo del módulo
 
-Ensamblar y transmitir hacia la PC, por UART, la trama de estado del juego, con modo, estado de
-la última letra, resultado, longitud de la palabra e intentos usados
-(`modo/letra_state/Resultado/w_word/Intentos`).
+Ensamblar y transmitir hacia la PC, por UART, las tramas de estado del juego que exige la sección
+3.4.4 del enunciado, inicio de partida con modo y longitud, resultado de cada letra con el patrón
+actualizado y los intentos, y resultado final con su causa.
 
-Decide solo cuándo transmitir. Al ver que `state` entró a JUEGO manda la trama de inicio de
-partida con longitud y modo, con cada `letra_state` nuevo manda el resultado de la letra y los
-intentos restantes, y al entrar a GANO, PERDIO_INTENTOS o PERDIO_TIEMPO manda el resultado final.
-Como los tres estados de fin son distintos, la causa de la derrota sale directo del `state`, sin
-necesidad de una señal aparte.
+Decide solo cuándo transmitir. Al ver que `i_state` entró a JUEGO manda la trama de inicio, con
+cada letra evaluada manda la trama de letra, y al entrar a GANO, PERDIO_INTENTOS o PERDIO_TIEMPO
+manda la de fin. Como los tres estados de fin son distintos, la causa sale directo del `i_state`
+y no hace falta una señal aparte.
 
 ## d) Entradas
 
 - `clk`, `rst`.
-- `state[2:0]`: estado actual, desde M13_FSM, decide cuál trama toca enviar.
-- `modo`: desde M13_FSM.
-- `letra_state[1:0]`: desde M07_Comparador-letra. Mismo contrato asumido en M02_Generador-Tono,
-  pulso de un solo ciclo (`00`=sin evento, `01`=acierto, `10`=fallo, `11`=repetida), pendiente de
-  confirmar contra la documentación real de M07.
-- `try[2:0]`: intentos fallidos acumulados, desde M12_Contador-Intentos (alcanza hasta 6, según
-  la comparación `CMP = 6` de ese módulo, así que 3 bits bastan).
-- `word_length[3:0]`: longitud de la palabra escogida, desde REG_Palabra-escogida (hasta 15
-  caracteres, acorde al límite de 16 columnas del PmodCLP que ya usa M04).
-- `rdata_i[31:0]`: bus de 32 bits compartido con PERIFERICO_UART, para leer de vuelta `REG_CTRL`
-  y sondear el bit `send` como bandera de ocupado.
+- `i_state[2:0]`: estado actual, desde `M13_FSM`, decide cuál trama toca enviar y de dónde sale
+  la causa del fin de partida.
+- `i_modo`: modo de la partida, desde `M13_FSM`, viaja en la trama de inicio.
+- `i_letra_state[1:0]`: resultado de la última letra, desde `M07_Comparador-letra`. La
+  codificación es `00` fallo, `01` acierto, `10` repetida, y el `11` no se usa.
+- `i_letra_lista`: estrobo de un ciclo que acompaña a `i_letra_state`, desde
+  `M07_Comparador-letra`. Es el que dispara la trama, no el valor de `i_letra_state`, porque dos
+  letras seguidas con el mismo resultado no cambian ese bus y sin estrobo la segunda se perdería.
+- `i_intentos[2:0]`: fallos acumulados de la partida, desde `M12_Contador-Intentos`. Llega a 6,
+  así que 3 bits alcanzan.
+- `i_word_length[3:0]`: longitud de la palabra escogida, desde `REG_Palabra-escogida`.
+- `i_mascara[WORD_MAXLEN-1:0]`: posiciones ya reveladas, desde `M07_Comparador-letra`. Es el
+  patrón que el enunciado pide mandar junto con el resultado de la letra.
+- `i_rdata[31:0]`: lectura de vuelta del bus, de ahí sondea el bit `send` para saber si el
+  periférico sigue ocupado. Llega pasando por `ARBITRO_UART`.
+- `i_bus_libre`: desde `ARBITRO_UART`, dice si este ciclo el bus es suyo.
+
+El módulo está parametrizado con `WORD_MAXLEN = 12`, el mismo valor que usan
+`M07_Comparador-letra` y el banco de palabras.
 
 ## e) Salidas
 
-- `write_enable_o`, `addr_o[ADDR_WIDTH-1:0]`, `wdata_o[31:0]`: hacia el bus de 32 bits compartido
-  con PERIFERICO_UART.
+- `o_write_enable`, `o_addr[1:0]`, `o_wdata[31:0]`: petición hacia el bus, que entra por la cara
+  del transmisor de `ARBITRO_UART`.
 
-La etiqueta `modo/letra_state/Resultado/w_word/Intentos` del diagrama de nivel03 describe el
-**contenido** que M11 empaqueta dentro de `wdata_o` en distintos momentos, no puertos separados;
-como CONTROL_JUEGO solo tiene un bus de 32 bits hacia los periféricos, todos esos campos viajan
-por las mismas tres señales de arriba, una transacción a la vez.
+Todo lo que el módulo tiene que decir viaja empaquetado dentro de `o_wdata`, un byte a la vez.
+La etiqueta `modo/letra_state/Resultado/w_word/Intentos` del diagrama de nivel 3 describe ese
+contenido, no puertos separados.
 
 ## f) Explicación de la relación con otros módulos
 
-M11 recibe `state` y `modo` de M13_FSM igual que el resto de los módulos, `letra_state` de
-M07_Comparador-letra, y `try`/`word_length` de M12_Contador-Intentos y de REG_Palabra-escogida
-respectivamente, todos dentro de CONTROL_JUEGO. No le devuelve nada a ninguno de ellos: es un
-módulo de salida pura hacia PERIFERICO_UART, igual que M04_Mostrar-LCD lo es hacia PERIFERICO_LCD.
+Recibe `i_state` y `i_modo` de `M13_FSM`, `i_letra_state`, `i_letra_lista` e `i_mascara` de
+`M07_Comparador-letra`, `i_intentos` de `M12_Contador-Intentos` y `i_word_length` de
+`REG_Palabra-escogida`. No le devuelve nada a ninguno, es un módulo de salida pura hacia el
+periférico, igual que `M04_Mostrar-LCD` lo es hacia el LCD.
 
-A diferencia de M02_Generador-Tono, que sí puede perderse un evento sin consecuencias graves
-(un tono que no suena no rompe la partida), M11 no puede permitirse perder ni corromper una
-trama a medio enviar, porque eso deja a la PC con información inconsistente del estado del
-juego. Por eso, a diferencia de M02, acá los eventos que llegan mientras el módulo está ocupado
-enviando una trama anterior no se descartan: quedan retenidos (ver h) hasta que el módulo vuelve
-a `IDLE`.
+Comparte el periférico UART con `M10_Receptor-UART`, y ese reparto lo resuelve `ARBITRO_UART`,
+que le da prioridad al receptor. De ahí sale `i_bus_libre`, la única entrada que este módulo tuvo
+que agregar para convivir con el otro maestro. Cuando el bus no es suyo, el módulo no avanza y
+reintenta el ciclo siguiente.
 
-M11 comparte el bus físico de 32 bits con M04_Mostrar-LCD dentro de CONTROL_JUEGO (ambos hacia
-PERIFERICO_LCD y PERIFERICO_UART respectivamente, que nivel02 describe como el mismo bus de 32
-bits arbitrado por CONTROL_JUEGO). Este documento solo describe el lado de M11 de esa interfaz,
-`write_enable_o`/`addr_o`/`wdata_o`; quién arbitra entre las peticiones de M04 y las de M11 hacia
-el puerto físico único que sale de CONTROL_JUEGO **no tiene módulo asignado todavía** en el
-listado M01-M13, y queda como punto pendiente de la integración en `top.sv`, igual que la
-identificada en la documentación de M13.
+A diferencia de `M02_Generador-Tono`, que puede perderse un evento sin consecuencias graves
+porque un tono que no suena no rompe la partida, acá perder o cortar una trama deja a la PC con
+una vista inconsistente del juego. Por eso los eventos que llegan mientras el módulo está
+ocupado no se descartan, quedan retenidos en las banderas que se explican en h).
 
 ## g) Explicación de funcionamiento
 
-M11 es, igual que M04, una pequeña FSM que traduce un evento de un solo pulso en una ráfaga de
-transacciones de bus, aplicada acá al periférico UART en vez de al LCD. A diferencia de M04, el
-periférico UART no expone `busy`/`done` como bits separados; expone un único bit `send` en
-`REG_CTRL` que el software escribe en 1 para pedir el envío y que el hardware limpia a 0 solo
-cuando ya lo aceptó, así que M11 lo usa también como bandera de ocupado, leyéndolo de vuelta por
-`rdata_i` antes de mandar el siguiente byte.
+El módulo es una FSM chiquita que traduce un evento de un solo pulso en una ráfaga de
+transacciones de bus.
 
-Tres eventos disparan una trama nueva: la entrada a JUEGO (trama de inicio, con `modo` y
-`word_length`), cada `letra_state` nuevo distinto de "sin evento" (trama de resultado de letra,
-con `letra_state` y `try`), y la entrada a un estado de fin (trama de resultado final, con la
-causa tomada directo de `state`). Cada trama es una cabecera de un byte que identifica el tipo,
-seguida de uno o dos bytes de contenido (ver h). Para enviar cada byte, M11 primero lo escribe en
-`REG_DATOS_TX` del periférico, luego pulsa `send` en `REG_CTRL`, y espera a que `send` se lea en
-0 de vuelta antes de repetir con el siguiente byte de la trama.
+El periférico UART no expone `busy` y `done` como bits separados, como sí hace el LCD. Expone un
+único bit `send` que el maestro escribe en 1 para pedir el envío y que el hardware baja solo
+cuando el byte ya salió completo. Ese bit sirve entonces de orden y de bandera de ocupado, y el
+módulo lo lee de vuelta por `i_rdata` antes de mandar el siguiente byte de la trama.
 
-Como los tres eventos pueden ocurrir mientras M11 todavía está terminando de enviar una trama
-anterior (por ejemplo, si llega un `letra_state` nuevo mientras la trama de inicio de partida
-sigue en tránsito), M11 no los descarta ni los atiende de inmediato: los deja marcados en un
-pequeño juego de banderas "pendiente" y solo arranca la siguiente trama cuando vuelve a `IDLE`,
-con la misma prioridad que ya se usó en M02_Generador-Tono, fin de partida primero, luego
-resultado de letra, luego inicio de partida.
+Para cada byte el módulo hace tres cosas en orden. Lo escribe en el registro de datos de
+transmisión, levanta `send` en el registro de control, y espera a leer `send` en cero. Ahí sabe
+que el periférico terminó y sigue con el byte siguiente, o vuelve a IDLE si ya mandó la trama
+entera.
+
+Tres eventos disparan una trama nueva. La entrada a JUEGO, cada estrobo `i_letra_lista`, y la
+entrada a un estado de fin. Como los tres pueden ocurrir mientras el módulo sigue ocupado con
+una trama anterior, cada uno levanta su bandera de pendiente y espera turno.
 
 ## h) Diseño
 
 ### Formato de las tramas
 
-Se define un protocolo binario simple, cabecera de un byte más contenido, para que
-CNT_BYTE/MUX del diagrama modular lo recorran byte a byte:
+Protocolo binario, un byte de cabecera que identifica el tipo y detrás el contenido:
 
-| Trama | Disparador | Cabecera | Byte 1 | Byte 2 | Longitud (`LEN`) |
-|---|---|---|---|---|---|
-| INICIO | entrada a JUEGO | `"I"` (`0x49`) | `{7'b0, modo}` | `word_length` | 3 |
-| LETRA | `letra_state != 00` | `"L"` (`0x4C`) | `{6'b0, letra_state}` | `try` | 3 |
-| FIN | entrada a GANO/PERDIO_INTENTOS/PERDIO_TIEMPO | `"F"` (`0x46`) | `{5'b0, state}` | — | 2 |
+| Trama | Disparador | Cabecera | Byte 1 | Byte 2 | Byte 3 | Byte 4 | Largo |
+|---|---|---|---|---|---|---|---|
+| INICIO | entrada a JUEGO | `"I"` (`0x49`) | `{7'b0, modo}` | `{4'b0, word_length}` | | | 3 |
+| LETRA | `i_letra_lista` | `"L"` (`0x4C`) | `{6'b0, letra_state}` | `{5'b0, intentos}` | `mascara[7:0]` | `mascara[15:8]` | 5 |
+| FIN | entrada a un estado de fin | `"F"` (`0x46`) | `{5'b0, state}` | | | | 2 |
 
-Las cabeceras se escogieron como caracteres ASCII imprimibles únicamente para que sean legibles
-si alguien mira la trama cruda con un monitor serial durante depuración; `APP_PC` las trata como
-bytes, no como texto.
+Las cabeceras son caracteres ASCII imprimibles solo para que la trama cruda se pueda leer con un
+monitor serial durante la depuración. La app de PC las trata como bytes, no como texto.
+
+La máscara viaja en dos bytes, poco significativo primero, aunque con `WORD_MAXLEN = 12` sobren
+cuatro bits. Se hizo así para que el formato no cambie si el banco de palabras crece a 16
+caracteres.
+
+Ojo con un detalle de la máscara. `M07_Comparador-letra` arranca las posiciones de relleno en
+unos, para que su comparación de palabra completa funcione igual con una palabra de 4 letras que
+con una de 12. O sea que los bits por encima de `word_length` llegan en 1 sin que eso signifique
+nada. La app de PC solo debe mirar los primeros `word_length` bits, y por eso la trama de inicio
+manda la longitud antes que cualquier máscara.
+
+La trama de letra también sale cuando la letra estaba repetida. Es a propósito. El enunciado dice
+que una letra repetida se ignora y no gasta intento, pero si la FPGA no contesta nada, la PC se
+queda esperando una respuesta que nunca llega y el usuario vuelve a escribir. Se le contesta con
+`letra_state = 10` y el mismo patrón de antes, así la PC sabe que el byte llegó y que no cambió
+nada.
+
+### Direcciones del periférico
+
+- Registro de datos de transmisión en `2'b00`, la fija el enunciado.
+- Registro de control en `2'b10`, la escogió el equipo y está documentada en
+  `PERIFERICO_UART.md`.
+
+Van como `localparam`, no como `parameter`. No son constantes que un testbench necesite ajustar
+para simular más rápido, son parte fija del mapa de registros.
+
+Este módulo escribe el control con `32'h1`, o sea con `new_rx` en cero, lo que borraría un byte
+recibido esperando. Quien lo evita es `ARBITRO_UART`, que recompone la palabra antes de que
+llegue al periférico. El módulo no tiene que saber nada de eso.
 
 ### Detección de disparo y banderas pendientes
 
-Igual que en M02, la entrada a JUEGO y la entrada a un estado de fin son niveles que hay que
-convertir en pulsos de un ciclo con un registro de un ciclo de retardo:
+La entrada a JUEGO y la entrada a un estado de fin son niveles, y hay que convertirlos en pulsos
+de un ciclo con un registro de retardo:
 
 ```
-dec_juego  = (state == JUEGO)
-dec_fin    = (state == GANO) | (state == PERDIO_INTENTOS) | (state == PERDIO_TIEMPO)
+dec_juego  = (i_state == JUEGO)
+dec_fin    = (i_state == GANO) | (i_state == PERDIO_INTENTOS) | (i_state == PERDIO_TIEMPO)
 pulso_ini  = dec_juego AND (NOT dec_juego_prev)
 pulso_fin  = dec_fin   AND (NOT dec_fin_prev)
 ```
 
-A diferencia de M02, estos pulsos (junto con `letra_state != 00`) no disparan directamente la
-carga de `REG_TRAMA`: primero fijan una bandera "pendiente" que se mantiene en alto hasta que el
-módulo la atiende, para no perder el evento si ocurre mientras la FSM está ocupada:
+`i_letra_lista` ya viene como pulso de un ciclo desde M07, así que no necesita detector.
 
-| Señal | Se activa con | Se limpia cuando |
-|---|---|---|
-| `pend_ini` | `pulso_ini` | la FSM la consume (transición `IDLE → LOAD_DATA` para tipo INICIO) |
-| `pend_letra` (+ `pend_letra_val[1:0]`) | `letra_state != 00` | la FSM la consume (transición `IDLE → LOAD_DATA` para tipo LETRA) |
-| `pend_fin` (+ `pend_fin_causa[2:0]`) | `pulso_fin` | la FSM la consume (transición `IDLE → LOAD_DATA` para tipo FIN) |
+Esos tres pulsos no cargan la trama de una vez, primero levantan una bandera que se mantiene alta
+hasta que la FSM la atienda:
 
-Si un segundo evento del mismo tipo llega mientras el primero sigue pendiente sin atender (por
-ejemplo, dos `letra_state` nuevos antes de que la FSM vuelva a `IDLE`), el valor capturado se
-sobreescribe con el más reciente y el primero se pierde; es una limitación aceptada dado el
-margen de tiempo que da la velocidad de tecleo humana frente a la duración de una trama de a lo
-sumo 3 bytes a 115200 baudios.
-
-Solo en `IDLE` se decide cuál pendiente atender, con la misma prioridad usada en M02:
-
-| `pend_fin` | `pend_letra` | `pend_ini` | Trama a cargar |
+| Bandera | Se levanta con | Valores que captura | Se limpia cuando |
 |---|---|---|---|
-| 1 | X | X | FIN |
-| 0 | 1 | X | LETRA |
-| 0 | 0 | 1 | INICIO |
-| 0 | 0 | 0 | (ninguna, permanece en IDLE) |
+| `pend_ini` | `pulso_ini` | ninguno, `i_modo` e `i_word_length` se leen al cargar | la FSM la consume |
+| `pend_letra` | `i_letra_lista` | `i_letra_state`, `i_intentos`, `i_mascara` | la FSM la consume |
+| `pend_fin` | `pulso_fin` | `i_state`, que es la causa | la FSM la consume |
+
+Consumir está atado a la transición y no solo al estado. Una bandera se limpia únicamente en el
+ciclo en que la FSM de verdad arranca la trama, o sea estando en IDLE, con pendiente, y con el
+bus libre. Si se limpiara solo por estar en IDLE, una pendiente que aparece mientras el árbitro
+tiene el bus ocupado se borraría sin haberse mandado nunca.
+
+Cuando el set y el clear coinciden en el mismo ciclo, gana el set. Eso pasa si llega una letra
+nueva justo cuando se está consumiendo la anterior, y con la prioridad al revés el evento nuevo
+se perdería.
+
+Si un segundo evento del mismo tipo llega mientras el primero sigue sin atender, el valor
+capturado se sobreescribe con el más reciente y el viejo se pierde. Es una limitación aceptada.
+Una trama de 5 bytes a 115200 baudios tarda 434 µs, y ninguna persona escribe dos letras con
+menos de medio milisegundo de diferencia.
+
+En IDLE se decide cuál pendiente atender, con la misma prioridad que ya usa `M02_Generador-Tono`:
+
+| `pend_fin` | `pend_letra` | `pend_ini` | Trama que se carga |
+|---|---|---|---|
+| `1` | `x` | `x` | FIN |
+| `0` | `1` | `x` | LETRA |
+| `0` | `0` | `1` | INICIO |
+| `0` | `0` | `0` | ninguna, se queda en IDLE |
+
+El fin de partida va primero a propósito. Si el jugador completa la palabra con la última letra,
+quedan pendientes la trama de letra y la de fin al mismo tiempo, y a la PC le sirve más saber
+antes que la partida terminó.
 
 ### Máquina de estados
 
-Cuatro estados, Moore, misma filosofía que M04_Mostrar-LCD (una orden puntual se traduce en una
-ráfaga de transacciones de bus), adaptada al handshake de un solo bit `send` del UART en vez de
-`busy`/`done` del LCD:
+Cuatro estados, codificados `IDLE=00`, `LOAD_DATA=01`, `LOAD_CTRL=10`, `WAIT=11`:
 
-| Estado actual | hay pendiente? | `send` leído (`rdata_i[0]`) | `CNT_BYTE = LEN-1`? | Estado siguiente |
-|---|---|---|---|---|
-| IDLE | 0 | X | X | IDLE |
-| IDLE | 1 | X | X | LOAD_DATA (carga `REG_TRAMA`/`REG_LEN`, `CNT_BYTE=0`, limpia la pendiente elegida) |
-| LOAD_DATA | X | X | X | LOAD_CTRL |
-| LOAD_CTRL | X | X | X | WAIT |
-| WAIT | X | 1 (ocupado) | X | WAIT |
-| WAIT | X | 0 (libre) | 0 | LOAD_DATA (`CNT_BYTE = CNT_BYTE + 1`) |
-| WAIT | X | 0 (libre) | 1 | IDLE |
+| Estado actual | `i_bus_libre` | hay pendiente | `send` leído | `CNT_BYTE = LEN-1` | Estado siguiente |
+|---|---|---|---|---|---|
+| IDLE | `x` | `0` | `x` | `x` | IDLE |
+| IDLE | `0` | `1` | `x` | `x` | IDLE, espera el bus |
+| IDLE | `1` | `1` | `x` | `x` | LOAD_DATA, carga la trama y pone `CNT_BYTE = 0` |
+| LOAD_DATA | `0` | `x` | `x` | `x` | LOAD_DATA, reintenta la escritura |
+| LOAD_DATA | `1` | `x` | `x` | `x` | LOAD_CTRL |
+| LOAD_CTRL | `0` | `x` | `x` | `x` | LOAD_CTRL, reintenta la escritura |
+| LOAD_CTRL | `1` | `x` | `x` | `x` | WAIT |
+| WAIT | `0` | `x` | `x` | `x` | WAIT |
+| WAIT | `1` | `x` | `1` ocupado | `x` | WAIT |
+| WAIT | `1` | `x` | `0` libre | `0` | LOAD_DATA, `CNT_BYTE + 1` |
+| WAIT | `1` | `x` | `0` libre | `1` | IDLE |
 
-Codificación de estado (2 bits, `S1 S0`): `IDLE=00`, `LOAD_DATA=01`, `LOAD_CTRL=10`, `WAIT=11`.
+Salidas por estado, que es Moore salvo por el byte que sale del contador:
 
-`LOAD_DATA` pone en el bus `addr_o = ADDR_UART_TX`, `wdata_o = {24'b0, byte_actual}`,
-`write_enable_o = 1`, donde `byte_actual` sale del MUX de `REG_TRAMA` indexado por `CNT_BYTE`.
-`LOAD_CTRL` pone `addr_o = ADDR_UART_CTRL`, `wdata_o = 32'h1` (bit 0 = `send`, resto en 0),
-`write_enable_o = 1`; se asume que `REG_CTRL` solo actúa sobre los bits escritos como 1 y no
-toca `new_rx` al escribir `send` (misma convención "escribir 1 para pulsar" que usan `start`,
-`clear` y `home` en `REG_CTRL_ESTADO` del LCD), pendiente de confirmar contra el diseño real del
-periférico. `WAIT` no escribe, `write_enable_o = 0`, y solo lee `rdata_i` para el bit `send`.
+| Estado | `o_addr` | `o_write_enable` | `o_wdata` |
+|---|---|---|---|
+| IDLE | control | `0` | ceros |
+| LOAD_DATA | datos TX | `1` | `{24'b0, byte_actual}` |
+| LOAD_CTRL | control | `1` | `32'h1`, o sea `send` |
+| WAIT | control | `0` | ceros |
 
-Los direccionamientos `ADDR_UART_TX` y `ADDR_UART_CTRL` se definen como `localparam` (no
-`parameter`): no son constantes de tiempo que un testbench necesite ajustar para simular más
-rápido, son parte fija del mapa de registros del periférico, así que van fijas en el módulo hasta
-que se conozca el mapa real de PERIFERICO_UART.
+En IDLE y en WAIT la dirección queda apuntando al control, que es lo que el módulo quiere leer
+en esos estados. Para el árbitro eso no cuenta como pedir el bus, así que los dos maestros pueden
+sondear el control a la vez sin estorbarse.
+
+El sondeo de `send` solo tiene sentido con el bus concedido. Cuando el árbitro se lo corta, el
+`i_rdata` llega en ceros, y un cero en el bit `send` significaría que el periférico está libre
+cuando en realidad nadie preguntó. Por eso la condición de salida de WAIT lleva `i_bus_libre`
+además del bit, y no solo el bit.
+
+### Latches
+
+El bloque de salidas es un `always_comb` con valores por defecto asignados antes del `case`, así
+que ninguna combinación queda sin cubrir. `make synth SYNTH_TOP=transmisor_uart` pasa sin
+`Latch inferred` en el log.
 
 ## i) Diagrama esquemático detallado (por compuertas lógicas)
 
 ```mermaid
 flowchart LR
-    STATEIN(["state"]) --> DECJ["comparador<br/>dec_juego"]
+    STATEIN(["i_state"]) --> DECJ["comparador<br/>dec_juego"]
     STATEIN --> DECF["comparador<br/>dec_fin (OR de 3 igualdades)"]
     DECJ --> DJP["D-FF<br/>dec_juego_prev"]
     DECF --> DFP["D-FF<br/>dec_fin_prev"]
@@ -3174,10 +3234,9 @@ flowchart LR
     DFP --> ANDF
     ANDF --> PULSOF["pulso_fin"]
 
-    PULSOI --> LATCHI["latch SR<br/>pend_ini"]
-    LST(["letra_state"]) --> CMPL{"CMP != 00"}
-    CMPL --> LATCHL["latch SR<br/>pend_letra"]
-    PULSOF --> LATCHF["latch SR<br/>pend_fin"]
+    PULSOI --> LATCHI["FF set/clear<br/>pend_ini"]
+    LST(["i_letra_lista"]) --> LATCHL["FF set/clear<br/>pend_letra"]
+    PULSOF --> LATCHF["FF set/clear<br/>pend_fin"]
 
     LATCHF --> PRIO["codificador de<br/>prioridad<br/>(fin > letra > inicio)"]
     LATCHL --> PRIO
@@ -3187,7 +3246,8 @@ flowchart LR
     S1Q["S1 (Q)"] --> NSL["Lógica de<br/>siguiente estado"]
     S0Q["S0 (Q)"] --> NSL
     SELTRAMA --> NSL
-    RDATA(["rdata_i[0]<br/>(send)"]) --> NSL
+    RDATA(["i_rdata[0]<br/>(send)"]) --> NSL
+    LIBRE(["i_bus_libre"]) --> NSL
     BYTEFIN(["CNT_BYTE = LEN-1"]) --> NSL
     NSL --> D1["D-FF S1"]
     NSL --> D2["D-FF S0"]
@@ -3197,23 +3257,43 @@ flowchart LR
     D2 --> S0Q
     S1Q --> DEC["DECOD 2:4<br/>(estados)"]
     S0Q --> DEC
-    DEC --> WEO["write_enable_o"]
-    DEC --> ADDRSEL["MUX addr_o<br/>(TX / CTRL)"]
+    DEC --> WEO["o_write_enable"]
+    DEC --> ADDRSEL["MUX o_addr<br/>(TX / CTRL)"]
     DEC --> CTENBYTE["enable CONT_BYTE"]
 
     SELTRAMA --> MUXFRAME{{"MUX<br/>REG_TRAMA/REG_LEN"}}
+    VALS(["i_modo, i_word_length,<br/>i_letra_state, i_intentos, i_mascara"]) --> MUXFRAME
     MUXFRAME --> RFRAME["D-FF (bus)<br/>REG_TRAMA + REG_LEN"]
     CLK --> RFRAME
     RFRAME --> MUXBYTE{{"MUX byte<br/>por CNT_BYTE"}}
     CTENBYTE --> CNTBYTE["CONT_BYTE"]
     CLK --> CNTBYTE
     CNTBYTE --> MUXBYTE
-    MUXBYTE --> WDATAO["wdata_o"]
+    MUXBYTE --> WDATAO["o_wdata"]
 ```
 
-`clk` y `rst` entran a todo registro/contador del módulo aunque no se dibujen en cada elemento.
-`rst` fuerza el estado a `IDLE`, limpia las tres banderas `pend_*` y pone `write_enable_o = 0`,
-dejando el bus en reposo tras cualquier reinicio a mitad de una trama.
+`clk` y `rst` entran a todo registro y contador del módulo aunque no se dibujen en cada elemento.
+`rst` fuerza el estado a IDLE, limpia las tres banderas `pend_*` y pone `o_write_enable` en cero,
+así que después de un reset el módulo queda mudo hasta el siguiente evento.
+
+## j) Diagrama completo de conexiones del diseño
+
+Este módulo no tiene puertos físicos propios. La línea TX de la tarjeta sale del núcleo que vive
+dentro de `PERIFERICO_UART`, así que la restricción de pin pertenece a ese periférico.
+
+Conexiones del instanciado dentro de `CONTROL_JUEGO`:
+
+- `clk`, al reloj global de 100 MHz.
+- `rst`, a BTN_RST ya sincronizado.
+- `i_state`, `i_modo`, desde `M13_FSM`.
+- `i_letra_state`, `i_letra_lista`, `i_mascara`, desde `M07_Comparador-letra`.
+- `i_intentos`, desde `M12_Contador-Intentos`.
+- `i_word_length`, desde `REG_Palabra-escogida`.
+- `i_rdata`, `i_bus_libre`, desde la cara del transmisor de `ARBITRO_UART`.
+- `o_addr`, `o_write_enable`, `o_wdata`, hacia la cara del transmisor de `ARBITRO_UART`.
+
+Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño
+que se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.
 
 ---
 
@@ -3650,3 +3730,433 @@ Acá el punto j) del método de diseño modular pide un diagrama de conexiones e
 que está pensado para un montaje con circuitos integrados discretos en protoboard. En un diseño
 que se sintetiza completo dentro de una sola Artix-7 no hay chips que alambrar, y la lista de
 arriba es la traducción razonable. Es la otra mitad de la consulta pendiente con el profesor.
+
+---
+
+# PERIFERICO_UART
+
+## Propósito
+
+Envuelve los dos núcleos serie que da el curso (`UART_tx.vhd` y `UART_rx.vhd`, portados a
+SystemVerilog) en la interfaz estándar de periférico de 32 bits que fija la sección 3.4.3 del
+enunciado. Expone tres registros y es el único bloque del diseño que toca las líneas físicas del
+puente USB-UART de la tarjeta.
+
+No sabe nada del juego. No conoce letras, ni estados, ni tramas. Mueve bytes en las dos
+direcciones y levanta banderas para que alguien más las lea.
+
+---
+
+## Entradas
+
+- `clk_i`, `rst_i`.
+- `write_enable_i`: habilitación de escritura del bus, desde `ARBITRO_UART`.
+- `addr_i[1:0]`: dirección del registro, desde `ARBITRO_UART`.
+- `wdata_i[31:0]`: dato a escribir, desde `ARBITRO_UART`.
+- `rx_i`: línea serial cruda, desde el pin B18 de la Basys 3.
+
+Los puertos del bus llevan sufijo `_i`/`_o` en vez del prefijo `i_`/`o_` que usa el resto del
+repo, porque la sección 3.4.3 los nombra así y la interfaz es de cumplimiento obligatorio.
+
+---
+
+## e) Salidas
+
+- `rdata_o[31:0]`: contenido del registro apuntado por `addr_i`, hacia `ARBITRO_UART`.
+- `tx_o`: línea serial hacia el pin A18 de la Basys 3.
+
+---
+
+## f) Relación con otros módulos
+
+Hacia adentro del sistema habla con un solo bloque, `ARBITRO_UART`. Ese es el punto importante del
+diseño. El enunciado habla de "el bloque que instancia la interfaz" en singular, y acá hay dos
+módulos que la quieren usar, `M10_Receptor-UART` para leer y `M11_Transmisor-UART` para escribir.
+El periférico no resuelve ese conflicto, lo resuelve el árbitro, y por eso el periférico ve un
+único maestro y se puede diseñar como si fuera un puerto simple.
+
+Hacia afuera habla con la PC. `rx_i` y `tx_o` salen directo a los pines del puente USB-UART, que
+es el mismo cable con el que se programa la tarjeta, así que no hace falta adaptador externo.
+
+Los dos núcleos que instancia adentro, `uart_tx` y `uart_rx`, son suyos y de nadie más. Ningún
+otro módulo del diseño los toca.
+
+---
+
+## g) Explicación de funcionamiento
+
+El periférico es un banco de tres registros con dos máquinas serie colgando.
+
+Para transmitir, el maestro escribe el byte en el registro de datos de transmisión y después
+levanta el bit `send` del registro de control. El periférico sostiene ese bit mientras el núcleo
+suelta el byte por la línea, y lo baja solo cuando el núcleo avisa que terminó. Ese bit hace dos
+trabajos a la vez, es la orden de arranque y es la bandera de ocupado que el maestro sondea para
+saber cuándo puede mandar el siguiente byte. El enunciado lo define como WC, o sea que lo escribe
+el maestro y lo limpia el hardware.
+
+Para recibir, el núcleo avisa con un pulso de un ciclo que hay un byte nuevo. El periférico lo
+guarda en el registro de datos de recepción y levanta `new_rx`. Ese bit se queda alto hasta que
+alguien lo escriba en cero, y limpiarlo es responsabilidad del maestro, tal como pide el
+enunciado. `new_rx` es RW, no W1C, y esa diferencia es la que obliga a tener árbitro.
+
+---
+
+## h) Diseño
+
+### Mapa de registros
+
+El enunciado fija las dos direcciones de datos y deja la del control a criterio del equipo:
+
+- `2'b00`, registro de datos de transmisión. Bits `[7:0]` son el byte a enviar, `[31:8]` son
+  reservados y se leen en cero.
+- `2'b01`, registro de datos de recepción. Bits `[7:0]` son el último byte recibido, `[31:8]` son
+  reservados y se leen en cero. El enunciado lo declara de escritura igual que el de transmisión,
+  así que se implementa escribible aunque en la práctica solo lo escribe un testbench.
+- `2'b10`, registro de control. Bit 0 es `send` (WC), bit 1 es `new_rx` (RW), y los bits `[31:2]`
+  son reservados, se leen en cero y las escrituras sobre ellos se ignoran.
+- `2'b11`, sin asignar. Las lecturas devuelven ceros y las escrituras no tienen efecto. Queda
+  libre por si en el futuro hace falta un registro de estado de errores de trama.
+
+La dirección del control se escogió `2'b10` y no `2'b11` para dejar el patrón de bits más alto
+como el hueco reconocible, y para que las dos direcciones de datos queden contiguas.
+
+### El bit send
+
+| Condición                                    | `send'` |
+| -------------------------------------------- | ------- |
+| `rst_i`                                       | `0`     |
+| escritura al control con `wdata_i[0] = 1`     | `1`     |
+| `o_listo` del núcleo de transmisión           | `0`     |
+| resto                                         | sin cambio |
+
+El orden de prioridad importa. La escritura va antes que la bajada automática, porque si el
+maestro pide un envío en el mismo ciclo en que el núcleo termina el anterior, lo que se quiere es
+que el envío nuevo gane.
+
+Se baja `send` en cuanto el núcleo avisa con `o_listo`, y esa es la única opción segura. El
+núcleo vuelve a mirar la orden de arranque un bit entero después de terminar el byte, así que
+bajar `send` ahí deja todo ese margen. Si el bit se sostuviera más tiempo, el núcleo lo leería
+otra vez y el mismo byte saldría dos veces.
+
+### El bit new_rx y su carrera
+
+| Condición                                         | `new_rx'` | `reg_rx'` |
+| -------------------------------------------------- | --------- | --------- |
+| `rst_i`                                            | `0`       | `0x00`    |
+| `o_dato_listo` del núcleo de recepción             | `1`       | dato del núcleo |
+| escritura al control                               | `wdata_i[1]` | sin cambio |
+| escritura al registro de datos de recepción        | sin cambio | `wdata_i[7:0]` |
+| resto                                              | sin cambio | sin cambio |
+
+El byte que llega le gana a la escritura del mismo ciclo. Sin esa prioridad existe un caso donde
+el maestro limpia `new_rx` justo en el ciclo en que entra un byte nuevo, y ese byte se pierde en
+silencio con el bit ya en cero. La ventana es de un ciclo de 10 ns cada 87 µs, o sea rarísima,
+que es exactamente el tipo de bug que aparece una vez en la demostración y nunca en simulación si
+uno no lo busca a propósito.
+
+### Los dos núcleos y su baudaje
+
+Los núcleos son transcripción de los `.vhd` del curso, misma máquina de estados y mismos tiempos,
+con los nombres traducidos al estilo del repo. Lo único que cambió son los genéricos, porque los
+originales venían calculados para un reloj de 16 MHz:
+
+- `uart_tx` cuenta `TICKS_BIT` ciclos por bit. A 100 MHz y 115200 baudios eso da
+  `100e6 / 115200 = 868.06`, se usa **868**. El baudaje real queda en 115207, un error de 0.006%.
+  El genérico original era 139.
+- `uart_rx` sobremuestrea a 16 veces el baudaje, así que cuenta `TICKS_X16` ciclos por tick. Eso
+  da `868.06 / 16 = 54.25`, se usa **54**. El genérico original era 9.
+
+El redondeo del receptor es el que aprieta, 54 en vez de 54.25 corre el muestreo un 0.47% por
+bit. Vale la pena hacer la cuenta completa, porque es la que garantiza que la comunicación
+funcione. El receptor detecta el flanco de arranque, espera 8 ticks para caer al centro del bit, y
+de ahí muestrea cada 16 ticks. El último bit de datos lo muestrea en el tick 136, o sea a
+`136 x 54 = 7344` ciclos del flanco. El centro real de ese bit está en `8.5 x 868.06 = 7379`
+ciclos. El desfase acumulado es de 35 ciclos contra los 434 que serían medio bit, así que sobra
+más de un orden de magnitud de margen.
+
+### La ventana muerta del núcleo de transmisión
+
+`UART_tx.vhd` levanta `start_reset` en el estado de parada y solo lo baja al volver a reposo, y
+las dos transiciones ocurren en ticks de baudaje. Entre una y otra pasa un bit entero, unos 8.7
+µs, durante los cuales el registro que atrapa la orden de arranque se mantiene en cero. Un pulso
+de un ciclo en `i_enviar` que caiga en esa ventana se pierde sin dejar rastro, no hay bandera de
+error ni nada.
+
+Por eso este periférico maneja `i_enviar` con el bit `send` sostenido y no con un pulso. Mientras
+`send` esté alto el núcleo va a atrapar la orden apenas salga de la ventana, y `send` se baja
+justo cuando el núcleo confirma que terminó. El comportamiento está cubierto con dos pruebas
+específicas en `tb_uart_tx`, una que demuestra que el pulso corto se pierde y otra que demuestra
+que el nivel sostenido sí atraviesa.
+
+### Los pulsos de un ciclo
+
+`o_dato_listo` y `o_listo` salen los dos del mismo detector de flanco dentro de los núcleos, y
+duran un solo ciclo de reloj. No se pueden sondear desde el bus, porque entre que el maestro pone
+la dirección y lee el resultado ya pasaron. Por eso el periférico los convierte en los dos bits
+pegajosos del registro de control, `new_rx` que se queda hasta que lo limpien y `send` que se
+queda hasta que el núcleo termine.
+
+### Latches
+
+El decodificador de lectura es un `always_comb` con `case` y rama `default`, así que las cuatro
+direcciones están cubiertas y no queda ninguna combinación sin asignar. Los dos bloques
+secuenciales son `always_ff` con reset síncrono. `make synth SYNTH_TOP=periferico_uart` pasa sin
+`Latch inferred` en el log.
+
+---
+
+## i) Diagrama esquemático detallado del diseño
+
+```mermaid
+flowchart LR
+    ADDR(["addr_i[1:0]"]) --> DEC["DECOD_DIR<br/>tx / rx / ctrl"]
+    WE(["write_enable_i"]) --> DEC
+
+    WDATA(["wdata_i[31:0]"]) --> REG_TX["REG_DATOS_TX<br/>registro 8b"]
+    DEC --> REG_TX
+    WDATA --> BIT_SEND["SET_SEND<br/>wdata_i[0]"]
+    WDATA --> BIT_NRX["SET_NEW_RX<br/>wdata_i[1]"]
+
+    BIT_SEND --> FF_SEND["FF_SEND<br/>flip-flop, WC"]
+    BIT_NRX --> FF_NRX["FF_NEW_RX<br/>flip-flop, RW"]
+
+    REG_TX --> NUC_TX["uart_tx<br/>TICKS_BIT = 868"]
+    FF_SEND --> NUC_TX
+    NUC_TX --> OUT_TX(["tx_o"])
+    NUC_TX -->|o_listo| FF_SEND
+
+    IN_RX(["rx_i"]) --> NUC_RX["uart_rx<br/>TICKS_X16 = 54"]
+    NUC_RX -->|o_dato| REG_RX["REG_DATOS_RX<br/>registro 8b"]
+    NUC_RX -->|o_dato_listo| FF_NRX
+    NUC_RX -->|o_dato_listo| REG_RX
+
+    REG_TX --> MUX_RD{{"MUX de lectura"}}
+    REG_RX --> MUX_RD
+    FF_SEND --> MUX_RD
+    FF_NRX --> MUX_RD
+    DEC --> MUX_RD
+    MUX_RD --> OUT_RD(["rdata_o[31:0]"])
+```
+
+`clk_i` y `rst_i` entran a los dos registros, a los dos flip-flops y a los dos núcleos aunque no
+se dibujen.
+
+---
+
+## j) Diagrama completo de conexiones del diseño
+
+Este es el único módulo del subsistema UART con puertos físicos propios, así que acá sí hay
+restricciones de pin que poner en `src/fpga/basys3.xdc`:
+
+- `rx_i`, al pin **B18**, `RsRx` del puente USB-UART.
+- `tx_o`, al pin **A18**, `RsTx` del puente USB-UART.
+- Los dos con `IOSTANDARD LVCMOS33`.
+
+Las dos líneas están comentadas en el `.xdc` que trae el repo, hay que descomentarlas y
+renombrar los puertos cuando se instancie el periférico en el top.
+
+Conexiones del instanciado dentro del top:
+
+- `clk_i`, al reloj global de 100 MHz.
+- `rst_i`, a BTN_RST ya sincronizado.
+- `write_enable_i`, `addr_i[1:0]`, `wdata_i[31:0]`, desde `ARBITRO_UART`.
+- `rdata_o[31:0]`, hacia `ARBITRO_UART`.
+
+Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño
+que se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.
+
+---
+
+# ARBITRO_UART
+
+## Propósito
+
+Multiplexa el bus de 32 bits entre los dos maestros que quieren hablarle a `PERIFERICO_UART`,
+`M10_Receptor-UART` y `M11_Transmisor-UART`. El periférico tiene un solo puerto y el enunciado
+supone un único bloque instanciándolo, así que partir el UART en receptor y transmisor
+independientes obliga a poner algo en el medio.
+
+Aparte del multiplexado hace un segundo trabajo que no es obvio, recompone las escrituras al
+registro de control para que un maestro no le borre el bit al otro.
+
+---
+
+## Entradas
+
+- `i_rx_addr[1:0]`, `i_rx_we`, `i_rx_wdata[31:0]`: petición de `M10_Receptor-UART`.
+- `i_tx_addr[1:0]`, `i_tx_we`, `i_tx_wdata[31:0]`: petición de `M11_Transmisor-UART`.
+- `i_rdata[31:0]`: lo que devuelve `PERIFERICO_UART` en la dirección que se le está poniendo.
+
+No tiene `clk` ni `rst`. Es combinacional puro, no guarda estado.
+
+---
+
+## e) Salidas
+
+- `o_addr[1:0]`, `o_we`, `o_wdata[31:0]`: petición ganadora, hacia `PERIFERICO_UART`.
+- `o_rx_rdata[31:0]`: lo que ve `M10_Receptor-UART` de vuelta.
+- `o_tx_rdata[31:0]`: lo que ve `M11_Transmisor-UART` de vuelta.
+- `o_tx_bus_libre`: le avisa a `M11_Transmisor-UART` que este ciclo el bus es suyo.
+
+---
+
+## f) Relación con otros módulos
+
+Se sienta entre los dos maestros y el periférico, y los tres lo ven como si fueran ellos los que
+hablan directo. `M10_Receptor-UART` ni siquiera sabe que existe, porque nunca pierde el bus y su
+lectura siempre es la de verdad. `M11_Transmisor-UART` sí lo sabe, y para eso tiene la entrada
+`i_bus_libre`, que es la única señal que este módulo le agregó al diseño original de M11.
+
+No le reporta nada a `M13_FSM` ni participa en la lógica del juego. Es infraestructura de bus.
+
+Este bloque no aparece en el diagrama de tercer nivel, que se dibujó cuando el UART todavía se
+pensaba como un solo maestro. Hay que agregarlo dentro de `CONTROL_JUEGO`, entre M10/M11 y
+`PERIFERICO_UART`.
+
+---
+
+## g) Explicación de funcionamiento
+
+En cada ciclo el árbitro mira si alguno de los dos maestros está pidiendo el bus de verdad. Pedir
+el bus significa querer una dirección que no sea la del control, o querer escribir. Sondear el
+registro de control sin escribir no cuenta, porque los dos pueden leerlo a la vez sin estorbarse,
+que es justo lo que hacen la mayor parte del tiempo.
+
+Si el receptor pide, gana el receptor. Siempre, sin excepción y sin turnos. Si no pide y el
+transmisor sí, gana el transmisor. Si no pide ninguno, el árbitro deja la dirección apuntando al
+control, que es lo que los dos quieren leer cuando están sondeando.
+
+Al que pierde no se le devuelve el `rdata` del ganador, se le devuelven ceros. Eso es importante
+y es la parte que más fácil se hace mal.
+
+---
+
+## h) Diseño
+
+### Tabla de decisión
+
+| `rx_pide` | `tx_pide` | Quién maneja `o_addr`/`o_we`/`o_wdata` | `o_rx_rdata` | `o_tx_rdata` | `o_tx_bus_libre` |
+| --------- | --------- | -------------------------------------- | ------------ | ------------ | ------------- |
+| `1`       | `x`       | receptor                                | `i_rdata`    | ceros        | `0`           |
+| `0`       | `1`       | transmisor                              | ceros        | `i_rdata`    | `1`           |
+| `0`       | `0`       | nadie, `o_addr` al control y `o_we = 0` | `i_rdata`    | `i_rdata`    | `1`           |
+
+Donde `rx_pide = (i_rx_addr != CONTROL) OR i_rx_we` y lo mismo para el transmisor.
+
+La fila del medio explica por qué al perdedor se le mandan ceros. El receptor pasa la vida
+leyendo el registro de control y mirando el bit 1 para ver si hay byte nuevo. Si mientras tanto el
+transmisor tiene el bus puesto en el registro de datos de transmisión, el receptor estaría mirando
+el bit 1 de un byte cualquiera de una trama saliente y creería que le llegó una letra. Con ceros
+ve `new_rx = 0`, que es la respuesta segura. Del otro lado pasa lo mismo con `send`, el
+transmisor leería un `send` falso y creería que el periférico sigue ocupado, o peor, que ya
+terminó.
+
+En la última fila los dos pueden leer el mismo `i_rdata` sin problema, porque la dirección está
+en el control y eso es exactamente lo que los dos querían leer.
+
+### Recomposición de la escritura al control
+
+Este es el problema que motivó el módulo. El registro de control tiene un bit de cada maestro,
+`send` del transmisor en el bit 0 y `new_rx` del receptor en el bit 1, y el enunciado define
+`new_rx` como RW, o sea que una escritura lo deja en lo que diga el bit. No es W1C, así que
+escribir cero lo borra.
+
+El receptor escribe `32'h0` para bajar `new_rx`, y de paso pone `send` en cero, lo que aborta una
+transmisión en curso. El transmisor escribe `32'h1` para levantar `send`, y de paso pone `new_rx`
+en cero, o sea que cada trama que manda la FPGA se traga un byte recibido que estuviera
+esperando. Con un juego donde la PC escribe letras mientras la FPGA responde, los dos casos
+pasan seguido.
+
+Se propuso definir `new_rx` como W1C, pero eso contradice la línea 252 del enunciado, así
+que se descartó. Lo que hace el árbitro es rearmar la palabra que se escribe, tomando el bit del
+maestro que ganó y rescatando el del otro de la lectura viva del periférico:
+
+| Bit | Si gana el receptor      | Si gana el transmisor   |
+| --- | ------------------------ | ----------------------- |
+| 0, `send`   | `i_rdata[0]`, el valor que ya tenía | `i_tx_wdata[0]`, lo que pide el transmisor |
+| 1, `new_rx` | `i_rx_wdata[1]`, lo que pide el receptor | `i_rdata[1]`, el valor que ya tenía |
+
+Esto funciona sin carrera porque el `rdata_o` del periférico es combinacional respecto a `addr_i`
+y no depende de `wdata_i`. En el mismo ciclo en que se está componiendo la escritura, la lectura
+que llega ya es la del registro de control, así que el bit rescatado es el valor actual y no uno
+viejo. Si el periférico registrara la lectura, esta técnica no serviría y habría que meter un
+ciclo de espera.
+
+La recomposición solo aplica cuando la dirección ganadora es la del control. Para los dos
+registros de datos el `wdata` pasa tal cual.
+
+### Por qué prioridad fija y no turnos
+
+El receptor no sabe esperar. Su FSM avanza pase lo que pase, y si pierde el bus en el ciclo en
+que iba a leer el dato, lee cualquier cosa. Hacerlo capaz de esperar significaba agregarle una
+entrada y condicionar sus tres transiciones.
+
+El transmisor sí sabe esperar, ya venía con un estado `WAIT` y con banderas `pendiente` para no
+perder eventos que lleguen mientras está ocupado. Agregarle `i_bus_libre` fue barato, solo
+condicionar las transiciones que ya existían.
+
+El costo teórico de la prioridad fija es que el transmisor se muera de hambre, y en este sistema
+no puede pasar. El receptor toma el bus dos ciclos por cada byte que le llega, y a 115200 baudios
+un byte tarda 8680 ciclos de reloj. Aunque la PC mandara letras de forma continua, el receptor
+ocuparía el bus el 0.02% del tiempo. La probabilidad de que el transmisor pierda dos ciclos
+seguidos es despreciable, y aunque los perdiera, reintenta el ciclo siguiente sin perder nada.
+
+### Latches
+
+Todo el módulo es `always_comb` y `assign`. El `always_comb` asigna las tres salidas en las tres
+ramas del if, sin caminos sin cubrir. `make synth SYNTH_TOP=arbitro_uart` pasa sin
+`Latch inferred` en el log.
+
+---
+
+## i) Diagrama esquemático detallado del diseño
+
+```mermaid
+flowchart LR
+    RXA(["i_rx_addr, i_rx_we"]) --> CMP_RX{"CMP<br/>rx_pide"}
+    TXA(["i_tx_addr, i_tx_we"]) --> CMP_TX{"CMP<br/>tx_pide"}
+
+    CMP_RX --> MUX_BUS{{"MUX de peticion<br/>rx / tx / reposo"}}
+    CMP_TX --> MUX_BUS
+    RXW(["i_rx_wdata"]) --> MUX_BUS
+    TXW(["i_tx_wdata"]) --> MUX_BUS
+
+    CMP_RX --> COMP["RECOMP_CTRL<br/>arma send y new_rx"]
+    RXW --> COMP
+    TXW --> COMP
+    RD(["i_rdata (del periferico)"]) --> COMP
+
+    COMP --> MUX_WD{{"MUX de wdata<br/>control / datos"}}
+    MUX_BUS --> MUX_WD
+    MUX_WD --> OUT_WD(["o_wdata"])
+    MUX_BUS --> OUT_ADDR(["o_addr"])
+    MUX_BUS --> OUT_WE(["o_we"])
+
+    CMP_RX --> GATE_RX["AND<br/>rdata al receptor"]
+    RD --> GATE_RX
+    GATE_RX --> OUT_RXD(["o_rx_rdata"])
+
+    CMP_RX --> GATE_TX["AND<br/>rdata al transmisor"]
+    RD --> GATE_TX
+    GATE_TX --> OUT_TXD(["o_tx_rdata"])
+
+    CMP_RX --> OUT_LIBRE(["o_tx_bus_libre"])
+```
+
+---
+
+## j) Diagrama completo de conexiones del diseño
+
+No tiene puertos físicos, ni reloj, ni reset. Vive entero dentro de `CONTROL_JUEGO`.
+
+Conexiones del instanciado:
+
+- `i_rx_addr`, `i_rx_we`, `i_rx_wdata`, desde `M10_Receptor-UART`.
+- `o_rx_rdata`, hacia `M10_Receptor-UART`.
+- `i_tx_addr`, `i_tx_we`, `i_tx_wdata`, desde `M11_Transmisor-UART`.
+- `o_tx_rdata` y `o_tx_bus_libre`, hacia `M11_Transmisor-UART`.
+- `o_addr`, `o_we`, `o_wdata`, hacia `PERIFERICO_UART`.
+- `i_rdata`, desde `PERIFERICO_UART`.
+
+Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño
+que se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.

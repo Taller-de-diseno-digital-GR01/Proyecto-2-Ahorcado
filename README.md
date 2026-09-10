@@ -52,3 +52,8 @@ un solo archivo en [`docs/diseño/diseño.md`](docs/diseño/diseño.md).
 - [M11 - Transmisor UART](docs/diseño/modulos/M11_Transmisor-UART.md)
 - [M12 - Contador de Intentos](docs/diseño/modulos/M12_Contador-Intentos.md)
 - [M13 - FSM](docs/diseño/modulos/M13_FSM.md)
+
+Los dos bloques del subsistema UART que no llevan número de módulo:
+
+- [Periférico UART](docs/diseño/modulos/PERIFERICO_UART.md)
+- [Árbitro del bus UART](docs/diseño/modulos/ARBITRO_UART.md)
