@@ -43,7 +43,7 @@ def _lineas(juego):
 def _espera():
     return ["  Esperando a que arranque la partida.",
             "",
-            dibujo.pintar("  Elegí el modo con BTN_SEL y confirmá con BTN_OK en la tarjeta.", "gris")]
+            dibujo.pintar("  Elegí el modo con el botón Seleccionar y confirmá con el botón OK en la tarjeta.", "gris")]
 
 
 def _tablero(juego):
