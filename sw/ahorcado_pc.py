@@ -6,6 +6,7 @@ import argparse
 import sys
 
 import enlace
+import protocolo
 
 
 def opciones():
@@ -36,10 +37,11 @@ def main():
         print("Error, %s" % error, file=sys.stderr)
         return 1
     print("Escuchando %s a %d baudios, Ctrl-C para salir." % (puerto.port, args.baudios))
+    decodificador = protocolo.Decodificador()
     while True:
         datos = puerto.read(64)
-        if datos:
-            print(" ".join("%02X" % byte for byte in datos))
+        for evento in decodificador.alimentar(datos):
+            print(evento)
 
 
 if __name__ == "__main__":
