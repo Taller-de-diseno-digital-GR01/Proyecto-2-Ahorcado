@@ -72,3 +72,10 @@ class Decodificador:
         self._cabecera = None
         return evento
 
+
+def codificar_letra(tecla):
+    """El byte que se le manda a la FPGA, o None si la tecla no era una letra."""
+    letra = tecla.upper()
+    if len(letra) != 1 or not "A" <= letra <= "Z":
+        return None
+    return letra.encode("ascii")
