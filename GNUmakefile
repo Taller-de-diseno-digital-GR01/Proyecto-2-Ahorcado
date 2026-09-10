@@ -11,6 +11,10 @@ YOSYS          := yosys
 OPENFPGALOADER := openFPGALoader
 BOARD          := basys3
 
+# doas es lo normal en FreeBSD pero casi nunca está en Linux, y el demo puede terminar
+# corriendo desde otra máquina del equipo. Se puede forzar con make program PRIV=sudo
+PRIV := $(shell command -v doas >/dev/null 2>&1 && echo doas || echo sudo)
+
 # Toolchain openXC7 (yosys + nextpnr-xilinx + prjxray), sin Vivado.
 # Requiere /opt/openxc7/bin en el PATH -- correr antes: source /opt/openxc7/export.sh
 NEXTPNR_XILINX  := nextpnr-xilinx
@@ -182,7 +186,7 @@ connect: | $(BUILD_DIR)
 	@case "$$(uname)" in \
 		FreeBSD) \
 			if command -v usbconfig >/dev/null 2>&1; then \
-				if ! doas usbconfig list 2>/dev/null | grep -qi "FT2232"; then \
+				if ! $(PRIV) usbconfig list 2>/dev/null | grep -qi "FT2232"; then \
 					echo "ERROR: no se detecta el chip FT2232 (Basys3) en el bus USB (usbconfig list)."; \
 					echo "       revisá el cable (debe ser de datos, no solo carga), el puerto usado,"; \
 					echo "       y que el switch de encendido (SW16) de la tarjeta esté en ON."; \
@@ -193,7 +197,7 @@ connect: | $(BUILD_DIR)
 			if command -v kldstat >/dev/null 2>&1 && kldstat -q -m uftdi 2>/dev/null; then \
 				echo "AVISO: el módulo uftdi está cargado y puede acaparar el FT2232 antes que"; \
 				echo "       libusb/openFPGALoader -- si el chequeo de JTAG de abajo falla, corré:"; \
-				echo "         doas kldunload uftdi"; \
+				echo "         $(PRIV) kldunload uftdi"; \
 				echo "       y volvé a conectar el cable USB de la Basys3 antes de reintentar."; \
 			fi ;; \
 		*) \
@@ -202,7 +206,7 @@ connect: | $(BUILD_DIR)
 				exit 1; \
 			fi ;; \
 	esac
-	@if ! doas $(OPENFPGALOADER) --detect > $(BUILD_DIR)/.connect.log 2>&1; then \
+	@if ! $(PRIV) $(OPENFPGALOADER) --detect > $(BUILD_DIR)/.connect.log 2>&1; then \
 		echo "ERROR: openFPGALoader no logra hablar JTAG con la tarjeta:"; \
 		cat $(BUILD_DIR)/.connect.log; \
 		echo ""; \
@@ -212,7 +216,7 @@ connect: | $(BUILD_DIR)
 	@echo "OK: openFPGALoader detecta la FPGA por JTAG. Todo listo para 'make program' / 'make all'."
 
 program: connect
-	doas $(OPENFPGALOADER) -b $(BOARD) $(BIT)
+	$(PRIV) $(OPENFPGALOADER) -b $(BOARD) $(BIT)
 
 test: check-tb # <-- Esto corre make sim para cada testbench en $(TBS), uno por uno
 	@estado=0; \
