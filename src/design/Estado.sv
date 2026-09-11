@@ -6,13 +6,12 @@
 // Recibe el estado global desde M13_FSM, lo registra y lo
 // decodifica en una salida sencilla de estado.
 //
-// Codificación de state proveniente de M13_FSM:
+// Codificación de state proveniente de fsm.sv:
 //   000 -> SELECCION
 //   001 -> CARGA
 //   010 -> JUEGO
 //   011 -> GANO
-//   100 -> PERDIO_INTENTOS
-//   101 -> PERDIO_TIEMPO
+//   100 -> PERDIO (intentos y tiempo comparten un solo estado)
 //
 // Codificación de state_led:
 //   00 -> selección
