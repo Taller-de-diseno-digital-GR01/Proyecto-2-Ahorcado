@@ -55,7 +55,7 @@ module receptor_uart #(parameter WIDTH=32) (
   always_comb begin
     o_addr = ADDR_CTRL;
     o_write_enable = 1'b0;
-    o_wdata = WIDTH'b0; // escribir ceros baja new_rx y de paso no pulsa el send del transmisor
+    o_wdata = '0; // escribir ceros baja new_rx y de paso no pulsa el send del transmisor
     case (estado)
       LEE: o_addr = ADDR_DATOS_RX;
       LIMPIA: o_write_enable = 1'b1;

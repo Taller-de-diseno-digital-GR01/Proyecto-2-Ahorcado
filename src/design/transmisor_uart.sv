@@ -171,7 +171,7 @@ module transmisor_uart #(parameter WORD_MAXLEN = 12) (
   always_comb begin
     o_write_enable = 1'b0;
     o_addr = ADDR_UART_CTRL;
-    o_wdata = WIDTH'b0;
+    o_wdata = '0;
     case (estado)
       LOAD_DATA: begin
         o_addr = ADDR_UART_TX;
@@ -180,7 +180,7 @@ module transmisor_uart #(parameter WORD_MAXLEN = 12) (
       end
       LOAD_CTRL: begin
         o_addr = ADDR_UART_CTRL;
-        o_wdata = WIDTH'h1; // bit 0 = send
+        o_wdata = WIDTH'(1); // bit 0 = send
         o_write_enable = 1'b1;
       end
       default: ; // IDLE y WAIT no escriben

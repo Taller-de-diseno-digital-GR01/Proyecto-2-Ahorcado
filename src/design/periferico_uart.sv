@@ -81,7 +81,7 @@ module periferico_uart #(parameter WIDTH=32, parameter TICKS_BIT = 868, paramete
       ADDR_DATOS_TX: rdata_o = {24'b0, reg_tx};
       ADDR_DATOS_RX: rdata_o = {24'b0, reg_rx};
       ADDR_CONTROL: rdata_o = {30'b0, new_rx, send};
-      default: rdata_o = WIDTH'b0; // la direccion 11 no se usa, devuelve ceros
+      default: rdata_o = '0; // la direccion 11 no se usa, devuelve ceros
     endcase
   end
 

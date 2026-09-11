@@ -56,14 +56,14 @@ module arbitro_uart #(parameter WIDTH=32) (
     else begin
       o_addr = ADDR_CONTROL; // en reposo se deja apuntando al control, que es lo que los dos quieren leer
       o_we = 1'b0;
-      o_wdata = WIDTH'b0;
+      o_wdata = '0;
     end
 
     if (o_we && o_addr == ADDR_CONTROL) o_wdata = wdata_control;
   end
 
   // Al que no tiene el bus se le devuelven ceros, si no leeria el registro ajeno creyendo que es el control
-  assign o_rx_rdata = (rx_pide || !tx_pide) ? i_rdata : WIDTH'b0;
-  assign o_tx_rdata = rx_pide ? WIDTH'b0 : i_rdata;
+  assign o_rx_rdata = (rx_pide || !tx_pide) ? i_rdata : '0;
+  assign o_tx_rdata = rx_pide ? '0 : i_rdata;
 
 endmodule
