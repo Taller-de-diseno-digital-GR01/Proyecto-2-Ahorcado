@@ -10,7 +10,7 @@ module mostrar_lcd (
 
   input logic [2:0]  i_state,        // desde M13_FSM, decide cual pantalla toca
   input logic        i_modo,         // desde M13_FSM, 0=FACIL 1=DIFICIL
-  input logic [7:0]  i_word [0:11],  // palabra escogida, desde REG_Palabra-escogida
+  input logic [95:0] i_word,         // palabra escogida, desde REG_Palabra-escogida; 12 letras ASCII empacadas, letra 0 en los bits bajos
   input logic [3:0]  i_word_length,  // cuantas posiciones de i_word son validas
   input logic [11:0] i_mascara,      // posiciones ya reveladas, desde M07_Comparador-letra
 
@@ -210,7 +210,7 @@ module mostrar_lcd (
               o_addr         = ADDR_DATOS;
               o_write_enable = 1'b1;
               // Posiciones reveladas muestran la letra real de la palabra, el resto un guion bajo
-              o_wdata[7:0]   = (act_state == ST_JUEGO) ? (act_mascara[pos] ? i_word[pos] : "_")
+              o_wdata[7:0]   = (act_state == ST_JUEGO) ? (act_mascara[pos] ? i_word[pos*8 +: 8] : "_")
                                                         : f_byte(act_state, act_modo, pos);
             end
             else begin

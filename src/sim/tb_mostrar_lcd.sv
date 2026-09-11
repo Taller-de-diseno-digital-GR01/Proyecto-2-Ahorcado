@@ -53,7 +53,7 @@ module tb_mostrar_lcd;
 
   logic [2:0]  i_state;
   logic        i_modo;
-  logic [7:0]  i_word [0:11];
+  logic [95:0] i_word;
   logic [3:0]  i_word_length;
   logic [11:0] i_mascara;
   logic [31:0] i_rdata;
@@ -204,7 +204,7 @@ module tb_mostrar_lcd;
     i_modo        = 1'b0;
     i_mascara     = 12'b0;
     i_word_length = 4'd0;
-    for (int k = 0; k < 12; k = k + 1) i_word[k] = " ";
+    for (int k = 0; k < 12; k = k + 1) i_word[k*8 +: 8] = " ";
     repeat (3) @(posedge clk);
     rst = 1'b0;
 
@@ -229,7 +229,7 @@ module tb_mostrar_lcd;
 
     // 4) Entra a JUEGO con la palabra "GATO", nada revelado todavia (mascara = 0, como la deja
     //    M07_Comparador-letra recien limpiada en CARGA)
-    i_word[0] = "G"; i_word[1] = "A"; i_word[2] = "T"; i_word[3] = "O";
+    i_word[0*8 +: 8] = "G"; i_word[1*8 +: 8] = "A"; i_word[2*8 +: 8] = "T"; i_word[3*8 +: 8] = "O";
     i_word_length = 4'd4;
     i_mascara     = 12'b0000_0000_0000;
     i_state       = ST_JUEGO;
