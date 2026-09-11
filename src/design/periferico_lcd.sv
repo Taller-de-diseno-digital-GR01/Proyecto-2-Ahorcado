@@ -1,18 +1,25 @@
-// ============================================================================
-// PERIFERICO_LCD - Proyecto 2 (Ahorcado), EL3313
+//NOTAS:
+
+
+// Tabla de inicializacion y tiempos actualizados segun el datasheet del
+// equipo (secuencia reducida: Power On -> 20ms -> Function Set -> 37us
+// -> Display On/Off -> 37us -> Clear Display -> 1.52ms -> listo). El
+// Entry Mode Set no se manda explicito porque, segun ese mismo
+// datasheet, el circuito de reset interno del HD44780 ya deja
+// I/D=1, SH=0 configurado, y esta secuencia solo corrige lo que el
+// reset interno no deja como se necesita (2 lineas y display encendido).
+// Bytes derivados de la tabla "Instruction bit assignments" de ese
+// datasheet: Function Set 8bit/2L/5x8 = 0x38, Display ON+cursor off+
+// blink off = 0x0C, Clear Display = 0x01.
 //
-// Envoltorio de registros de 32 bits (interfaz estandar de bus del
-// enunciado, seccion 3.4.3) + driver interno del HD44780 (PmodCLP,
-// modo de 8 bits) discutido en el chat.
+// Timing del pulso E y de setup de RS/datos tomado del datasheet del
+// KS0066U (controlador real del PmodCLP, compatible con el HD44780):
+// tw (ancho de E) >= 230ns, tsu1 (setup RS/RW) >= 40ns,
+// tsu2 (setup de datos) >= 80ns. Fuente:
+// https://www.lcd-module.de/eng/pdf/zubehoer/ks0066.pdf (Tabla de
+// caracteristicas AC, modo de escritura del MPU).
 //
-// *** BORRADOR PARA REVISAR, NO DAR POR VALIDADO ***
-// Los bytes de comando y los tiempos de espera de la tabla de
-// inicializacion son valores TIPICOS tomados de la hoja de datos del
-// HD44780U. Confirmalos contra la hoja de datos exacta que estes
-// citando y contra la referencia del PmodCLP antes de usarlos en la
-// entrega, y deja esa fuente documentada en tu informe tecnico.
-// Falta ademas: bloque de pruebas (testbench autoverificable), y
-// revisar con el linter que no se cuele ningun latch.
+// Falta todavia: bloque de pruebas (testbench autoverificable)
 // ============================================================================
 
 module periferico_lcd #(
@@ -34,37 +41,49 @@ module periferico_lcd #(
     output logic [7:0]  lcd_data_o
 );
 
-    // -------------------------------------------------------------------
-    // Constantes de tiempo, derivadas de CLK_FREQ_HZ (repasar contra la
-    // hoja de datos real antes de dar por buenos estos numeros)
-    // -------------------------------------------------------------------
+    // Constantes de tiempo, derivadas de CLK_FREQ_HZ 
     localparam int CYC_PER_US = CLK_FREQ_HZ / 1_000_000; // 100 @ 100 MHz
 
-    localparam int T_15MS_CYC   = 15_000 * CYC_PER_US;  // espera de encendido
-    localparam int T_4_1MS_CYC  = 4_100  * CYC_PER_US;  // tras 1er Function Set
-    localparam int T_100US_CYC  = 100    * CYC_PER_US;  // tras 2do Function Set
-    localparam int T_40US_CYC   = 40     * CYC_PER_US;  // comando/dato normal
+    localparam int T_20MS_CYC   = 20_000 * CYC_PER_US;  // espera de encendido
+    localparam int T_37US_CYC   = 37     * CYC_PER_US;  // tras Function Set / Display On-Off
+    localparam int T_40US_CYC   = 40     * CYC_PER_US;  // comando/dato normal (operacion regular)
     localparam int T_1_52MS_CYC = 1_520  * CYC_PER_US;  // clear / home
     localparam int T_EPULSE_CYC = (CYC_PER_US / 2 > 0) ? (CYC_PER_US / 2) : 1;
-                                                          // ancho del pulso E (~0.5us)
+                                                          // ancho del pulso E (~0.5us,
+                                                          // min. real segun KS0066U: 230ns)
+    localparam int T_SETUP_CYC  = ((80 * CYC_PER_US) / 1000 > 0) ? ((80 * CYC_PER_US) / 1000) : 1;
+                                                          // espera de "setup" con E en bajo,
+                                                          // antes de subir E (~80ns, el mayor
+                                                          // entre tsu1=40ns y tsu2=80ns)
 
-    // -------------------------------------------------------------------
-    // Tabla fija de inicializacion "by instruction" del HD44780
-    // (valores de ejemplo — verificar contra la hoja de datos)
-    // -------------------------------------------------------------------
-    localparam int N_INIT = 6;
+    // Tabla fija de inicializacion "by instruction" del HD44780, segun el
+    // datasheet del equipo (ver nota arriba). Nota de herramienta: iverilog
+    // (nuestro simulador, ver GNUmakefile) no soporta "localparam <tipo>
+    // nombre [rango] = '{...}" (arreglo sin empacar con localparam), asi
+    // que la tabla se implementa como un mux/case, exactamente la misma
+    // idea que ya usamos para decodificar salidas segun el estado: el
+    // indice init_idx selecciona la fila de la tabla.
+    localparam int N_INIT = 3;
 
-    localparam logic [7:0] INIT_BYTE [0:N_INIT-1] = '{
-        8'h30, 8'h30, 8'h38, 8'h0C, 8'h01, 8'h06
-    };
-    // Function Set, Function Set, Function Set(8b/2L/5x8), Display ON,
-    // Clear Display, Entry Mode Set — todos con rs=0 (son comandos)
-    localparam logic INIT_RS [0:N_INIT-1] = '{
-        1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0
-    };
-    localparam int INIT_WAIT [0:N_INIT-1] = '{
-        T_4_1MS_CYC, T_100US_CYC, T_40US_CYC, T_40US_CYC, T_1_52MS_CYC, T_40US_CYC
-    };
+    function automatic logic [7:0] init_byte_f(input logic [1:0] idx);
+        unique case (idx)
+            2'd0: init_byte_f = 8'h38; // Function Set (8bit/2L/5x8)
+            2'd1: init_byte_f = 8'h0C; // Display ON, cursor off, blink off
+            2'd2: init_byte_f = 8'h01; // Clear Display
+            default: init_byte_f = 8'h00;
+        endcase
+    endfunction
+
+    function automatic logic [20:0] init_wait_f(input logic [1:0] idx);
+        unique case (idx)
+            2'd0: init_wait_f = T_37US_CYC[20:0];
+            2'd1: init_wait_f = T_37US_CYC[20:0];
+            2'd2: init_wait_f = T_1_52MS_CYC[20:0];
+            default: init_wait_f = '0;
+        endcase
+    endfunction
+    // Los tres pasos de la tabla van con rs=0 (son comandos), por eso no
+    // hace falta una funcion aparte para eso: se pone 1'b0 directo abajo.
 
     // -------------------------------------------------------------------
     // Registros accesibles por el bus
@@ -87,11 +106,16 @@ module periferico_lcd #(
     end
 
     // -------------------------------------------------------------------
-    // FSM principal: RESET_WAIT -> (tabla de init) -> IDLE <-> SET/EXEC/WAIT
+    // FSM principal: RESET_WAIT -> (tabla de init) -> IDLE <-> SET/SETUP/EXEC/WAIT
+    //
+    // S_SETUP es el estado agregado para respetar tsu1/tsu2: mantiene
+    // RS y los datos ya estables (E todavia en bajo) durante T_SETUP_CYC
+    // ciclos antes de pasar a S_EXEC, donde recien ahi sube E.
     // -------------------------------------------------------------------
     typedef enum logic [2:0] {
         S_RESET_WAIT,
         S_SET,
+        S_SETUP,
         S_EXEC,
         S_WAIT,
         S_IDLE
@@ -104,21 +128,38 @@ module periferico_lcd #(
 
     logic [7:0]  op_byte;
     logic        op_rs;
-    logic [20:0] op_wait_target;  // alcanza para T_15MS_CYC
+    logic [20:0] op_wait_target;  // alcanza para el mayor tiempo usado (T_1_52MS_CYC)
 
     logic [20:0] cnt;
     logic [15:0] e_cnt;
 
     logic busy_r, done_r;
 
+    // clear_pulse/home_pulse/start_pulse solo valen durante el UNICO ciclo
+    // en que se escribe el bit correspondiente (son W1P): se apagan solos
+    // apenas write_enable_i se baja. Si S_IDLE decide "next_state = S_SET"
+    // en base a ellos pero S_SET los vuelve a leer un ciclo despues, ya los
+    // encuentra en cero. Por eso hace falta "guardarlos" (latch) en el
+    // mismo ciclo en que S_IDLE los ve altos, para poder usarlos ya en
+    // S_SET. Misma prioridad que antes: clear > home > start.
+    typedef enum logic [1:0] {
+        OP_START,
+        OP_CLEAR,
+        OP_HOME
+    } pending_op_t;
+
+    pending_op_t pending_op;
+
     // Logica de siguiente estado (combinacional, sin latches: default
     // "quedate igual" al inicio de cada branch)
     always_comb begin
         next_state = state;
         unique case (state)
-            S_RESET_WAIT: if (cnt == T_15MS_CYC) next_state = S_SET;
+            S_RESET_WAIT: if (cnt == T_20MS_CYC) next_state = S_SET;
 
-            S_SET: next_state = S_EXEC;
+            S_SET: next_state = S_SETUP;
+
+            S_SETUP: if (cnt == T_SETUP_CYC) next_state = S_EXEC;
 
             S_EXEC: if (e_cnt == T_EPULSE_CYC) next_state = S_WAIT;
 
@@ -147,6 +188,7 @@ module periferico_lcd #(
             op_rs          <= 1'b0;
             op_wait_target <= '0;
             done_r         <= 1'b0;
+            pending_op     <= OP_START;
         end else begin
             state  <= next_state;
             done_r <= 1'b0; // "done" es un pulso de un ciclo; se reafirma abajo si toca
@@ -161,25 +203,39 @@ module periferico_lcd #(
                     cnt   <= '0;
                     e_cnt <= '0;
                     if (!init_done) begin
-                        op_byte        <= INIT_BYTE[init_idx];
-                        op_rs          <= INIT_RS[init_idx];
-                        op_wait_target <= INIT_WAIT[init_idx][20:0];
-                    end else if (clear_pulse) begin
-                        op_byte        <= 8'h01;
+                        op_byte        <= init_byte_f(init_idx[1:0]);
                         op_rs          <= 1'b0;
-                        op_wait_target <= T_1_52MS_CYC[20:0];
-                    end else if (home_pulse) begin
-                        op_byte        <= 8'h02;
-                        op_rs          <= 1'b0;
-                        op_wait_target <= T_1_52MS_CYC[20:0];
-                    end else begin // start_pulse
-                        op_byte        <= data_reg;
-                        op_rs          <= rs_reg;
-                        op_wait_target <= T_40US_CYC[20:0];
+                        op_wait_target <= init_wait_f(init_idx[1:0]);
+                    end else begin
+                        // pending_op ya quedo guardado desde S_IDLE (ver
+                        // nota arriba de su declaracion): para aca los
+                        // pulsos originales ya se apagaron.
+                        unique case (pending_op)
+                            OP_CLEAR: begin
+                                op_byte        <= 8'h01;
+                                op_rs          <= 1'b0;
+                                op_wait_target <= T_1_52MS_CYC[20:0];
+                            end
+                            OP_HOME: begin
+                                op_byte        <= 8'h02;
+                                op_rs          <= 1'b0;
+                                op_wait_target <= T_1_52MS_CYC[20:0];
+                            end
+                            default: begin // OP_START
+                                op_byte        <= data_reg;
+                                op_rs          <= rs_reg;
+                                op_wait_target <= T_40US_CYC[20:0];
+                            end
+                        endcase
                     end
                 end
 
+                S_SETUP: begin
+                    cnt <= cnt + 1'b1; // RS/datos ya estables, E todavia en bajo
+                end
+
                 S_EXEC: begin
+                    cnt   <= '0; // lo dejamos listo para que S_WAIT arranque en 0
                     e_cnt <= e_cnt + 1'b1;
                 end
 
@@ -197,6 +253,12 @@ module periferico_lcd #(
 
                 S_IDLE: begin
                     cnt <= '0;
+                    // aca los pulsos todavia estan vivos (es el mismo
+                    // ciclo en que next_state los lee): se guardan en
+                    // pending_op para que S_SET los pueda usar despues
+                    if (clear_pulse)      pending_op <= OP_CLEAR;
+                    else if (home_pulse)  pending_op <= OP_HOME;
+                    else if (start_pulse) pending_op <= OP_START;
                 end
 
                 default: ;
@@ -204,9 +266,9 @@ module periferico_lcd #(
         end
     end
 
-    // -------------------------------------------------------------------
+
     // Salidas fisicas hacia el PmodCLP
-    // -------------------------------------------------------------------
+
     assign lcd_rw_o   = 1'b0; // este diseno solo escribe, nunca lee el LCD
     assign lcd_rs_o   = op_rs;
     assign lcd_data_o = op_byte;
@@ -215,9 +277,9 @@ module periferico_lcd #(
     // busy: ocupado en cualquier estado que no sea IDLE
     assign busy_r = (state != S_IDLE);
 
-    // -------------------------------------------------------------------
+
     // Lectura del bus (combinacional, con default para evitar latches)
-    // -------------------------------------------------------------------
+
     always_comb begin
         rdata_o = 32'h0;
         unique case (addr_i)
