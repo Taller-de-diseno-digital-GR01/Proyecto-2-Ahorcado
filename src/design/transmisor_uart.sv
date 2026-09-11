@@ -1,13 +1,13 @@
-module transmisor_uart #(parameter WORD_MAXLEN = 12) (
+module transmisor_uart #(parameter WIDTH = 32, parameter WORD_MAXLEN = 12) (
   input logic clk,
   input logic rst,
   input logic [2:0] i_state,       // desde la fsm
   input logic i_modo,              // desde la fsm
-  input logic [1:0] i_letra_state, // 00 fallo, 01 acierto, 10 repetida, desde M0(WIDTH/4)-1_Comparador-letra
-  input logic i_letra_lista,       // pulso de un ciclo que acompaña a i_letra_state, desde M0(WIDTH/4)-1
+  input logic [1:0] i_letra_state, // 00 fallo, 01 acierto, 10 repetida, desde M07_Comparador-letra
+  input logic i_letra_lista,       // pulso de un ciclo que acompaña a i_letra_state, desde M07
   input logic [2:0] i_intentos,    // intentos fallidos acumulados, desde M12_Contador-Intentos
   input logic [3:0] i_word_length, // longitud de la palabra, desde REG_Palabra-escogida
-  input logic [WORD_MAXLEN-1:0] i_mascara, // posiciones reveladas, desde M0(WIDTH/4)-1_Comparador-letra
+  input logic [WORD_MAXLEN-1:0] i_mascara, // posiciones reveladas, desde M07_Comparador-letra
   input logic [WIDTH-1:0] i_rdata,      // bus de WIDTH bits compartido con PERIFERICO_UART
   input logic i_bus_libre,         // desde el arbitro, el receptor tiene prioridad y este se aguanta
 
@@ -153,7 +153,7 @@ module transmisor_uart #(parameter WORD_MAXLEN = 12) (
         reg_trama[0] <= 8'h4C; // "L"
         reg_trama[1] <= {6'b0, pend_letra_val};
         reg_trama[2] <= {5'b0, pend_intentos_val};
-        // la pc solo debe mirar los primeros i_word_length bits, arriba de eso va el relleno que M0(WIDTH/4)-1 deja en unos
+        // la pc solo debe mirar los primeros i_word_length bits, arriba de eso va el relleno que M07 deja en unos
         reg_trama[3] <= mascara_ext[(WIDTH/4)-1:0];
         reg_trama[4] <= mascara_ext[15:8];
         reg_len <= 3'd5;

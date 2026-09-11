@@ -28,7 +28,7 @@ module receptor_uart #(parameter WIDTH=32) (
   assign new_rx = i_rdata[BIT_NEW_RX]; // solo vale mientras o_addr esté apuntando al registro de control
   assign en_rango = (i_rdata[(WIDTH/4)-1:0] >= 8'h41) && (i_rdata[(WIDTH/4)-1:0] <= 8'h5A); // A-Z, solo mayúsculas
 
-  // 1. Sondeo del periférico, tres ciclos por byte contra los 8(WIDTH/4)-1 us que tarda uno a 115200 baudios
+  // 1. Sondeo del periférico, tres ciclos por byte contra los 87 us que tarda uno a 115200 baudios
   always_ff @(posedge clk) begin
     o_valid_w <= 1'b0;
     if (rst) begin
