@@ -5,13 +5,12 @@
 //
 // Cuenta partidas ganadas al detectar la ENTRADA al estado GANO.
 //
-// Codificación relevante de M13_FSM:
+// Codificación relevante de fsm.sv:
 //   000 -> SELECCION
 //   001 -> CARGA
 //   010 -> JUEGO
 //   011 -> GANO
-//   100 -> PERDIO_INTENTOS
-//   101 -> PERDIO_TIEMPO
+//   100 -> PERDIO (intentos y tiempo comparten un solo estado)
 //
 // El contador se satura en 99.
 // rst devuelve el acumulado a 0.

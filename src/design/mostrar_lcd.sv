@@ -31,13 +31,13 @@ module mostrar_lcd (
   localparam BIT_HOME  = 3;
   localparam BIT_DONE  = 9;
 
-  // Codificacion de state, fijada por M13_FSM
-  localparam logic [2:0] ST_SELECCION       = 3'b000;
-  localparam logic [2:0] ST_CARGA           = 3'b001;
-  localparam logic [2:0] ST_JUEGO           = 3'b010;
-  localparam logic [2:0] ST_GANO            = 3'b011;
-  localparam logic [2:0] ST_PERDIO_INTENTOS = 3'b100;
-  localparam logic [2:0] ST_PERDIO_TIEMPO   = 3'b101;
+  // Codificacion de state, fijada por fsm.sv. PERDIO_INTENTOS y PERDIO_TIEMPO se unificaron en
+  // un solo ST_PERDIO, ya no hay forma de distinguir la causa desde state.
+  localparam logic [2:0] ST_SELECCION = 3'b000;
+  localparam logic [2:0] ST_CARGA     = 3'b001;
+  localparam logic [2:0] ST_JUEGO     = 3'b010;
+  localparam logic [2:0] ST_GANO      = 3'b011;
+  localparam logic [2:0] ST_PERDIO    = 3'b100;
 
   // FSM interna, codificacion fija por diseño (S1 S0): IDLE=00, HOME=01, SEND=10, WAIT=11
   localparam logic [1:0] IDLE = 2'b00;
@@ -92,21 +92,10 @@ module mostrar_lcd (
             default: b = " ";
           endcase
         end
-        ST_PERDIO_INTENTOS: begin // "PERDISTE: LETRAS", 16 caracteres
+        ST_PERDIO: begin // "PERDISTE", 8 caracteres, sin causa porque state ya no la distingue
           case (p)
-            4'd0:  b = "P"; 4'd1:  b = "E"; 4'd2:  b = "R"; 4'd3:  b = "D";
-            4'd4:  b = "I"; 4'd5:  b = "S"; 4'd6:  b = "T"; 4'd7:  b = "E";
-            4'd8:  b = ":"; 4'd9:  b = " "; 4'd10: b = "L"; 4'd11: b = "E";
-            4'd12: b = "T"; 4'd13: b = "R"; 4'd14: b = "A"; 4'd15: b = "S";
-            default: b = " ";
-          endcase
-        end
-        ST_PERDIO_TIEMPO: begin // "PERDISTE: TIEMPO", 16 caracteres
-          case (p)
-            4'd0:  b = "P"; 4'd1:  b = "E"; 4'd2:  b = "R"; 4'd3:  b = "D";
-            4'd4:  b = "I"; 4'd5:  b = "S"; 4'd6:  b = "T"; 4'd7:  b = "E";
-            4'd8:  b = ":"; 4'd9:  b = " "; 4'd10: b = "T"; 4'd11: b = "I";
-            4'd12: b = "E"; 4'd13: b = "M"; 4'd14: b = "P"; 4'd15: b = "O";
+            4'd0: b = "P"; 4'd1: b = "E"; 4'd2: b = "R"; 4'd3: b = "D";
+            4'd4: b = "I"; 4'd5: b = "S"; 4'd6: b = "T"; 4'd7: b = "E";
             default: b = " ";
           endcase
         end
@@ -119,12 +108,11 @@ module mostrar_lcd (
   // Largo (ultima posicion) de cada mensaje, se calcula una sola vez al entrar a HOME
   function automatic logic [3:0] f_last_pos(input logic [2:0] st, input logic mo, input logic [3:0] wlen);
     case (st)
-      ST_SELECCION:       f_last_pos = mo ? 4'd12 : 4'd10;
-      ST_JUEGO:           f_last_pos = (wlen == 4'd0) ? 4'd0 : (wlen - 4'd1);
-      ST_GANO:            f_last_pos = 4'd6;
-      ST_PERDIO_INTENTOS: f_last_pos = 4'd15;
-      ST_PERDIO_TIEMPO:   f_last_pos = 4'd15;
-      default:            f_last_pos = 4'd0;
+      ST_SELECCION: f_last_pos = mo ? 4'd12 : 4'd10;
+      ST_JUEGO:     f_last_pos = (wlen == 4'd0) ? 4'd0 : (wlen - 4'd1);
+      ST_GANO:      f_last_pos = 4'd6;
+      ST_PERDIO:    f_last_pos = 4'd7;
+      default:      f_last_pos = 4'd0;
     endcase
   endfunction
 
