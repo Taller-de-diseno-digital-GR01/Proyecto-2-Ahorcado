@@ -25,8 +25,7 @@ module tb_mostrar_lcd;
   localparam logic [2:0] ST_CARGA           = 3'b001;
   localparam logic [2:0] ST_JUEGO           = 3'b010;
   localparam logic [2:0] ST_GANO            = 3'b011;
-  localparam logic [2:0] ST_PERDIO_INTENTOS = 3'b100;
-  localparam logic [2:0] ST_PERDIO_TIEMPO   = 3'b101;
+  localparam logic [2:0] ST_PERDIO = 3'b100;
 
   // Codificacion de la FSM interna de mostrar_lcd, para poder esperar por hierarchical ref
   // (dut.estado), igual que tb_temporizador.sv usa dut.running.
@@ -266,15 +265,10 @@ module tb_mostrar_lcd;
     `WAIT_REDIBUJADO
     `CHECK_SCREEN("resultado: gano", "GANASTE", 7)
 
-    // 9) Resultado: PERDIO_INTENTOS
-    i_state = ST_PERDIO_INTENTOS;
+    // 9) Resultado: PERDIO (intentos y tiempo comparten un solo estado, sin causa distinguible)
+    i_state = ST_PERDIO;
     `WAIT_REDIBUJADO
-    `CHECK_SCREEN("resultado: perdio por intentos", "PERDISTE: LETRAS", 16)
-
-    // 10) Resultado: PERDIO_TIEMPO
-    i_state = ST_PERDIO_TIEMPO;
-    `WAIT_REDIBUJADO
-    `CHECK_SCREEN("resultado: perdio por tiempo", "PERDISTE: TIEMPO", 16)
+    `CHECK_SCREEN("resultado: perdio", "PERDISTE", 8)
 
     // 11) fin_espera: la FSM vuelve sola a SELECCION para la siguiente partida
     i_state = ST_SELECCION;

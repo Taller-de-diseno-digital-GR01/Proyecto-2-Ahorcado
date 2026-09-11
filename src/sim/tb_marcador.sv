@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-module tb_M01_Marcador;
+module tb_marcador;
 
     logic clk;
     logic rst;
