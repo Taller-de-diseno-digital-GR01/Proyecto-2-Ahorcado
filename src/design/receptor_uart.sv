@@ -1,4 +1,5 @@
-module receptor_uart #(parameter WIDTH=32) (
+// BYTE_WIDTH va como localparam de la lista porque el dato serial son 8 bits fijos, no una fraccion del bus
+module receptor_uart #(parameter WIDTH = 32, localparam int BYTE_WIDTH = 8) (
   input logic clk,
   input logic rst,
   input logic [WIDTH-1:0] i_rdata, // lo que devuelve el periférico uart en la dirección que le estoy poniendo
@@ -7,7 +8,7 @@ module receptor_uart #(parameter WIDTH=32) (
   output logic [1:0] o_addr,
   output logic o_write_enable,
   output logic [WIDTH-1:0] o_wdata,
-  output logic [(WIDTH/4)-1:0] o_letra, // hacia REG_Letra-in
+  output logic [BYTE_WIDTH-1:0] o_letra, // hacia REG_Letra-in
   output logic o_valid_w // habilitación de carga de esa letra
   );
 
@@ -26,14 +27,14 @@ module receptor_uart #(parameter WIDTH=32) (
   logic new_rx, en_rango;
 
   assign new_rx = i_rdata[BIT_NEW_RX]; // solo vale mientras o_addr esté apuntando al registro de control
-  assign en_rango = (i_rdata[(WIDTH/4)-1:0] >= 8'h41) && (i_rdata[(WIDTH/4)-1:0] <= 8'h5A); // A-Z, solo mayúsculas
+  assign en_rango = (i_rdata[BYTE_WIDTH-1:0] >= 8'h41) && (i_rdata[BYTE_WIDTH-1:0] <= 8'h5A); // A-Z, solo mayúsculas
 
   // 1. Sondeo del periférico, tres ciclos por byte contra los 87 us que tarda uno a 115200 baudios
   always_ff @(posedge clk) begin
     o_valid_w <= 1'b0;
     if (rst) begin
       estado <= ESPERA;
-      o_letra <= 8'h00;
+      o_letra <= '0;
     end
     else begin
       case (estado)
@@ -41,7 +42,7 @@ module receptor_uart #(parameter WIDTH=32) (
         // Acá se botan las letras que llegan en selección de modo o mostrando resultado, sin tocar la partida
         LEE: begin
           estado <= LIMPIA;
-          o_letra <= i_rdata[(WIDTH/4)-1:0];
+          o_letra <= i_rdata[BYTE_WIDTH-1:0];
           o_valid_w <= en_rango && (i_state == JUEGO);
         end
         // Limpia a new_rx, pase lo que pase con el byte, si no el receptor queda trabado y no recibe nunca más

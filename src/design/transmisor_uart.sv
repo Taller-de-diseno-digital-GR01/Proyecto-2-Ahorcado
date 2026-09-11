@@ -27,6 +27,9 @@ module transmisor_uart #(parameter WIDTH = 32, parameter WORD_MAXLEN = 12) (
   localparam ADDR_UART_TX = 2'b00;
   localparam BIT_SEND = 0;
 
+  // El dato serial son 8 bits fijos, no una fraccion del ancho del bus
+  localparam int BYTE_WIDTH = 8;
+
   localparam IDLE = 2'b00;
   localparam LOAD_DATA = 2'b01;
   localparam LOAD_CTRL = 2'b10;
@@ -111,10 +114,10 @@ module transmisor_uart #(parameter WIDTH = 32, parameter WORD_MAXLEN = 12) (
   logic send_busy;
   logic [2:0] cnt_byte;
   logic [2:0] reg_len; // la trama de letra son 5 bytes, con dos bits no alcanzaba
-  logic [(WIDTH/4)-1:0] reg_trama [0:4];
+  logic [BYTE_WIDTH-1:0] reg_trama [0:4];
 
-  logic [15:0] mascara_ext;
-  assign mascara_ext = {{(16-WORD_MAXLEN){1'b0}}, pend_mascara_val}; // la mascara viaja en dos bytes, poco significativo primero
+  logic [2*BYTE_WIDTH-1:0] mascara_ext;
+  assign mascara_ext = {{(2*BYTE_WIDTH-WORD_MAXLEN){1'b0}}, pend_mascara_val}; // la mascara viaja en dos bytes, poco significativo primero
 
   assign send_busy = i_rdata[BIT_SEND];
   assign estado_wait_libre = (estado == WAIT) && !send_busy && i_bus_libre; // sin el bus, send_busy llega en ceros y no significa nada
@@ -154,13 +157,13 @@ module transmisor_uart #(parameter WIDTH = 32, parameter WORD_MAXLEN = 12) (
         reg_trama[1] <= {6'b0, pend_letra_val};
         reg_trama[2] <= {5'b0, pend_intentos_val};
         // la pc solo debe mirar los primeros i_word_length bits, arriba de eso va el relleno que M07 deja en unos
-        reg_trama[3] <= mascara_ext[(WIDTH/4)-1:0];
-        reg_trama[4] <= mascara_ext[15:8];
+        reg_trama[3] <= mascara_ext[BYTE_WIDTH-1:0];
+        reg_trama[4] <= mascara_ext[2*BYTE_WIDTH-1:BYTE_WIDTH];
         reg_len <= 3'd5;
       end
       else begin // pend_ini
         reg_trama[0] <= 8'h49; // "I"
-        reg_trama[1] <= {(WIDTH/4)-1'b0, i_modo};
+        reg_trama[1] <= {{(BYTE_WIDTH-1){1'b0}}, i_modo};
         reg_trama[2] <= {4'b0, i_word_length};
         reg_len <= 3'd3;
       end
@@ -175,7 +178,7 @@ module transmisor_uart #(parameter WIDTH = 32, parameter WORD_MAXLEN = 12) (
     case (estado)
       LOAD_DATA: begin
         o_addr = ADDR_UART_TX;
-        o_wdata = {24'b0, reg_trama[cnt_byte]};
+        o_wdata = {{(WIDTH-BYTE_WIDTH){1'b0}}, reg_trama[cnt_byte]};
         o_write_enable = 1'b1;
       end
       LOAD_CTRL: begin
