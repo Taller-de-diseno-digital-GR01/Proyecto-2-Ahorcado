@@ -41,17 +41,22 @@ module periferico_lcd #(
     output logic [7:0]  lcd_data_o
 );
 
-    // Constantes de tiempo, derivadas de CLK_FREQ_HZ 
+    // Constantes de tiempo, derivadas de CLK_FREQ_HZ
     localparam int CYC_PER_US = CLK_FREQ_HZ / 1_000_000; // 100 @ 100 MHz
 
-    localparam int T_20MS_CYC   = 20_000 * CYC_PER_US;  // espera de encendido
-    localparam int T_37US_CYC   = 37     * CYC_PER_US;  // tras Function Set / Display On-Off
-    localparam int T_40US_CYC   = 40     * CYC_PER_US;  // comando/dato normal (operacion regular)
-    localparam int T_1_52MS_CYC = 1_520  * CYC_PER_US;  // clear / home
-    localparam int T_EPULSE_CYC = (CYC_PER_US / 2 > 0) ? (CYC_PER_US / 2) : 1;
+    // PRUEBA EMPIRICA: margen x3 sobre los minimos del datasheet en todo lo que no sea el
+    // encendido inicial, para descartar que el HD44780 real de esta placa sea mas lento que el
+    // KS0066U del datasheet. No confirmado como causa todavia -- revertir si no cambia nada.
+    localparam int MARGEN_PRUEBA = 3;
+
+    localparam int T_20MS_CYC   = 20_000 * CYC_PER_US;                    // espera de encendido
+    localparam int T_37US_CYC   = 37     * CYC_PER_US * MARGEN_PRUEBA;    // tras Function Set / Display On-Off
+    localparam int T_40US_CYC   = 40     * CYC_PER_US * MARGEN_PRUEBA;    // comando/dato normal (operacion regular)
+    localparam int T_1_52MS_CYC = 1_520  * CYC_PER_US * MARGEN_PRUEBA;    // clear / home
+    localparam int T_EPULSE_CYC = ((CYC_PER_US / 2 > 0) ? (CYC_PER_US / 2) : 1) * MARGEN_PRUEBA;
                                                           // ancho del pulso E (~0.5us,
                                                           // min. real segun KS0066U: 230ns)
-    localparam int T_SETUP_CYC  = ((80 * CYC_PER_US) / 1000 > 0) ? ((80 * CYC_PER_US) / 1000) : 1;
+    localparam int T_SETUP_CYC  = (((80 * CYC_PER_US) / 1000 > 0) ? ((80 * CYC_PER_US) / 1000) : 1) * MARGEN_PRUEBA;
                                                           // espera de "setup" con E en bajo,
                                                           // antes de subir E (~80ns, el mayor
                                                           // entre tsu1=40ns y tsu2=80ns)

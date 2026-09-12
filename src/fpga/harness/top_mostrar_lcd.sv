@@ -10,18 +10,13 @@
 //     src/design/botones.sv src/design/debounce.sv"
 //   make -f Makefile.windows fpga-program SYNTH_TOP=top_mostrar_lcd
 //
-// No usa ningun pin fuera de los ya descomentados en basys3.xdc: RS/R-W/E en Pmod JA,
-// lcd_data_o[7:0] en Pmod JXADC, sw[2:0]/btn_sel/btn_ok ya activos para otros arneses previos.
-//
-// VERSION COMPLETA: ya se confirmo que el LCD muestra texto (ver el arnes minimo previo, con
-// state_hw fijo en JUEGO y la palabra ya revelada desde el arranque -- sospecha de bug real de
-// carrera entre mostrar_lcd y periferico_lcd al encender en frio, reportada aparte, no resuelta
-// todavia). Esta version reactiva lo que antes estaba comentado:
-//   - sw[2:0] elige state_hw directo (mismo codigo que M13_FSM: SELECCION=000, CARGA=001,
-//     JUEGO=010, GANO=011, PERDIO=100).
-//   - btn_sel alterna modo_reg (FACIL/DIFICIL) y reinicia mascara_reg, como si fuera M09+M13_FSM.
-//   - btn_ok revela la siguiente letra de la palabra de prueba (corre mascara_reg de a un bit),
-//     como si fuera M07_Comparador-letra acertando letras en orden.
+// Control fisico (solo usa pines ya descomentados en basys3.xdc, no hace falta tocar el xdc):
+//   sw[2:0] elige state_hw, mismo codigo que M13_FSM: SELECCION=000, CARGA=001, JUEGO=010,
+//           GANO=011, PERDIO=100
+//   btn_sel alterna modo_reg (FACIL/DIFICIL) y reinicia mascara_reg, como si fuera M09+M13_FSM
+//   btn_ok  revela la siguiente letra de la palabra de prueba (corre mascara_reg de a un bit),
+//           como si fuera M07_Comparador-letra acertando letras en orden
+//   rst     BTN_RST real de la tarjeta
 module top_mostrar_lcd (
     input  logic       clk,
     input  logic       rst,
