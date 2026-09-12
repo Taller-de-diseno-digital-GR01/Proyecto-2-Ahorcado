@@ -8,7 +8,7 @@
 //   num_ganadas  -> valor proveniente de M06_Ganadas
 //
 // Salidas:
-//   seg[6:0] -> segmentos abcdefg, activos en bajo
+//   seg[6:0] -> segmentos gfedcba (seg[0]=a ... seg[6]=g, orden de basys3.xdc), activos en bajo
 //   an[3:0]  -> selección de dígito, activa en bajo
 //   dp       -> punto decimal, apagado
 // ============================================================
@@ -198,7 +198,7 @@ endmodule
 // ============================================================
 // Decodificador BCD -> 7 segmentos
 //
-// seg[6:0] = abcdefg
+// seg[6:0] = gfedcba
 // Salidas activas en bajo
 // ============================================================
 module decod_bcd_7seg (

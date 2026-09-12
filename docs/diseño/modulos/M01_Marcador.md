@@ -130,20 +130,22 @@ El mismo valor selecciona el ánodo correspondiente:
 | `10`      | `1011`    |
 | `11`      | `0111`    |
 
-Suponiendo segmentos activos en bajo, el decodificador BCD a 7 segmentos utiliza:
+Suponiendo segmentos activos en bajo, el decodificador BCD a 7 segmentos utiliza `seg[6:0] =
+gfedcba`, es decir `seg[0] = a` hasta `seg[6] = g`. Es el mismo orden que asigna a mano
+`basys3.xdc` (`seg[0]→CA`, `seg[1]→CB`, ..., `seg[6]→CG`):
 
-| BCD    | Número | `abcdefg` |
+| BCD    | Número | `gfedcba` |
 | ------ | -----: | --------- |
-| `0000` |      0 | `0000001` |
-| `0001` |      1 | `1001111` |
-| `0010` |      2 | `0010010` |
-| `0011` |      3 | `0000110` |
-| `0100` |      4 | `1001100` |
-| `0101` |      5 | `0100100` |
-| `0110` |      6 | `0100000` |
-| `0111` |      7 | `0001111` |
+| `0000` |      0 | `1000000` |
+| `0001` |      1 | `1111001` |
+| `0010` |      2 | `0100100` |
+| `0011` |      3 | `0110000` |
+| `0100` |      4 | `0011001` |
+| `0101` |      5 | `0010010` |
+| `0110` |      6 | `0000010` |
+| `0111` |      7 | `1111000` |
 | `1000` |      8 | `0000000` |
-| `1001` |      9 | `0000100` |
+| `1001` |      9 | `0010000` |
 
 El punto decimal no se utiliza, por lo que dp se mantiene apagado.
 
