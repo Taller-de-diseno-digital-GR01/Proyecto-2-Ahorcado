@@ -44,10 +44,10 @@ set_property PACKAGE_PIN W16 [get_ports {sw[2]}]
  
 
 # LEDs
-set_property PACKAGE_PIN U16 [get_ports {led_state}]					
-	set_property IOSTANDARD LVCMOS33 [get_ports {led_state}]
-set_property PACKAGE_PIN E19 [get_ports {LED[1]}]					
-	set_property IOSTANDARD LVCMOS33 [get_ports {LED[1]}]
+set_property PACKAGE_PIN U16 [get_ports {state_led[0]}]					
+	set_property IOSTANDARD LVCMOS33 [get_ports {state_led[0]}]
+set_property PACKAGE_PIN E19 [get_ports {state_led[1]}]					
+	set_property IOSTANDARD LVCMOS33 [get_ports {state_led[1]}]
 set_property PACKAGE_PIN U19 [get_ports {LED[2]}]					
 	set_property IOSTANDARD LVCMOS33 [get_ports {LED[2]}]
 set_property PACKAGE_PIN V19 [get_ports {LED[3]}]					
@@ -151,8 +151,8 @@ set_property PACKAGE_PIN G2 [get_ports {NC}]
 
 ##Pmod Header JB
 ##Sch name = JB1
-set_property PACKAGE_PIN A14 [get_ports {pos}]					
-	set_property IOSTANDARD LVCMOS33 [get_ports {pos}]
+#set_property PACKAGE_PIN A14 [get_ports {pos}]					
+#	set_property IOSTANDARD LVCMOS33 [get_ports {pos}]
 ##Sch name = JB2
 #set_property PACKAGE_PIN A16 [get_ports {JB[1]}]					
 	#set_property IOSTANDARD LVCMOS33 [get_ports {JB[1]}]
@@ -160,8 +160,8 @@ set_property PACKAGE_PIN A14 [get_ports {pos}]
 #set_property PACKAGE_PIN B15 [get_ports {JB[2]}]					
 	#set_property IOSTANDARD LVCMOS33 [get_ports {JB[2]}]
 ##Sch name = JB4
-set_property PACKAGE_PIN B16 [get_ports {en_numRandom}]					
-	set_property IOSTANDARD LVCMOS33 [get_ports {en_numRandom}]
+#set_property PACKAGE_PIN B16 [get_ports {en_numRandom}]					
+#	set_property IOSTANDARD LVCMOS33 [get_ports {en_numRandom}]
 ##Sch name = JB7
 #set_property PACKAGE_PIN A15 [get_ports {JB[4]}]					
 	#set_property IOSTANDARD LVCMOS33 [get_ports {JB[4]}]

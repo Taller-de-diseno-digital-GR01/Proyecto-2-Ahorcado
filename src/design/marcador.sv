@@ -4,8 +4,8 @@
 // M01_Marcador
 //
 // Entradas:
-//   time_value         -> valor proveniente de M03_Temporizador
-//   num_ganadas  -> valor proveniente de M06_Ganadas
+//   time_value[7:0]  -> BCD empacado {decenas, unidades}, mismo formato de M03_Temporizador
+//   num_ganadas[6:0] -> binario 0-99, mismo formato de M06_Ganadas
 //
 // Salidas:
 //   seg[6:0] -> segmentos gfedcba (seg[0]=a ... seg[6]=g, orden de basys3.xdc), activos en bajo
@@ -18,7 +18,7 @@ module marcador #(
 )(
     input  logic       clk,
     input  logic       rst,
-    input  logic [6:0] time_value,
+    input  logic [7:0] time_value,
     input  logic [6:0] num_ganadas,
 
     output logic [6:0] seg,
@@ -26,7 +26,7 @@ module marcador #(
     output logic       dp
 );
 
-    logic [6:0] time_value_reg;
+    logic [7:0] time_value_reg;
     logic [6:0] ganadas_reg;
     logic [1:0] selector;
     logic [3:0] digito_bcd;
@@ -75,13 +75,13 @@ endmodule
 module reg_tiempo (
     input  logic       clk,
     input  logic       rst,
-    input  logic [6:0] time_value_in,
-    output logic [6:0] time_value_out
+    input  logic [7:0] time_value_in,
+    output logic [7:0] time_value_out
 );
 
     always_ff @(posedge clk) begin
         if (rst)
-            time_value_out <= 7'd0;
+            time_value_out <= 8'd0;
         else
             time_value_out <= time_value_in;
     end
@@ -138,8 +138,8 @@ endmodule
 // AN3 -> decenas del tiempo
 // ============================================================
 module selector_digito (
-    input  logic [6:0] time_value_value,
-    input  logic [6:0] num_ganadas,
+    input  logic [7:0] time_value_value, // BCD empacado {decenas, unidades}
+    input  logic [6:0] num_ganadas,      // binario 0-99
     input  logic [1:0] selector,
 
     output logic [3:0] digito_bcd,
@@ -153,8 +153,9 @@ module selector_digito (
 
     always_comb begin
 
-        time_value_decenas  = time_value_value / 10;
-        time_value_unidades = time_value_value % 10;
+        // time_value_value ya llega en BCD, se extraen los nibbles directo, sin dividir
+        time_value_decenas  = time_value_value[7:4];
+        time_value_unidades = time_value_value[3:0];
 
         win_decenas   = num_ganadas / 10;
         win_unidades  = num_ganadas % 10;

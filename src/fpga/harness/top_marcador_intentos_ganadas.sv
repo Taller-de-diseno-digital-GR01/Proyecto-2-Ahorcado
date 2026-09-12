@@ -19,11 +19,14 @@
 //   btn_sel sin uso en esta prueba
 //   rst     BTN_RST real de la tarjeta, reinicia los tres modulos a la vez
 //
-// Display de 7 segmentos de marcador.sv, reusando su bus time_value para mostrar los intentos
-// en vez del tiempo real de M03_Temporizador ya que ese modulo no entra en esta prueba:
+// Display de 7 segmentos de marcador.sv, reusando su bus time_value (BCD) para mostrar los
+// intentos en vez del tiempo real de M03_Temporizador ya que ese modulo no entra en esta
+// prueba -- o_intentos nunca pasa de un digito (0-6), asi que su binario ya es identico a su
+// BCD, se empaca directo en el nibble de unidades sin necesitar conversion:
 //   AN0/AN1 unidades/decenas de num_ganadas real, sale de M06_Ganadas
 //   AN2/AN3 unidades/decenas de o_intentos real, sale de M12_Contador-Intentos
-//   led_state = o_intentos_agotados de M12_Contador-Intentos, se enciende al llegar a 6 fallos
+//   state_led[0] = o_intentos_agotados de M12_Contador-Intentos, se enciende al llegar a 6 fallos
+//   state_led[1] sin uso en esta prueba, fijo en 0
 module top_marcador_intentos_ganadas (
     input  logic       clk,
     input  logic       rst,
@@ -34,7 +37,7 @@ module top_marcador_intentos_ganadas (
     output logic [6:0] seg,
     output logic [3:0] an,
     output logic       dp,
-    output logic       led_state
+    output logic [1:0] state_led
 );
 
     logic btn_ok_pulse, btn_sel_pulse;
@@ -76,13 +79,13 @@ module top_marcador_intentos_ganadas (
     marcador u_marcador (
         .clk        (clk),
         .rst        (rst),
-        .time_value ({4'b0, intentos}),
+        .time_value ({4'b0, 1'b0, intentos}),
         .num_ganadas(num_ganadas),
         .seg        (seg),
         .an         (an),
         .dp         (dp)
     );
 
-    assign led_state = intentos_agotados;
+    assign state_led = {1'b0, intentos_agotados};
 
 endmodule
