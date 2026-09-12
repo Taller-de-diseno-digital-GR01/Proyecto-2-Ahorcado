@@ -18,7 +18,7 @@ class Partida:
         self.causa = None
         self.erradas = []
         self.ultima = None
-        # La trama de letra no dice cuál letra era, así que se aparean en orden con las que salieron
+        # El mensaje de letra no dice cuál letra era, así que se aparean en orden con las que salieron
         self.enviadas = deque()
         self._mascara = 0
 

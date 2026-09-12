@@ -33,7 +33,7 @@ def detectar_puerto():
 
 
 def abrir(puerto=None, baudios=BAUDIOS):
-    """Deja el puerto en modo no bloqueante, el que decide cuándo leer es el select del lazo."""
+    """Deja el puerto en modo no bloqueante, el que decide cuándo leer es el select del ciclo principal."""
     if puerto is None:
         puerto = detectar_puerto()
     try:

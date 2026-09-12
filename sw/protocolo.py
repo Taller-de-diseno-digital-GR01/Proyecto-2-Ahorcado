@@ -1,4 +1,4 @@
-# Codificación y decodificación de las tramas del enlace, ver docs/diseño/APP_PC.md
+# Codificación y decodificación de los mensajes del enlace, ver docs/diseño/APP_PC.md
 # El formato lo fija src/design/transmisor_uart.sv, si cambia allá hay que cambiarlo acá.
 # Este archivo es puro, no toca el puerto ni la pantalla, y por eso se puede probar sin tarjeta.
 
@@ -9,7 +9,7 @@ CAB_INICIO = 0x49  # "I"
 CAB_LETRA = 0x4C   # "L"
 CAB_FIN = 0x46     # "F"
 
-# Cuántos bytes trae cada trama detrás de la cabecera
+# Cuántos bytes trae cada mensaje detrás de la cabecera
 CUERPOS = {CAB_INICIO: 2, CAB_LETRA: 4, CAB_FIN: 1}
 
 FALLO = 0
@@ -41,7 +41,7 @@ def _armar(cabecera, cuerpo):
 
 
 class Decodificador: # claude
-    """Máquina de estados sobre el flujo de bytes, porque las tramas son de largo variable."""
+    """Máquina de estados sobre el flujo de bytes, porque los mensajes son de largo variable."""
 
     def __init__(self):
         self.descartados = 0
@@ -49,7 +49,7 @@ class Decodificador: # claude
         self._cuerpo = bytearray()
 
     def alimentar(self, datos):
-        """Come los bytes que hayan llegado y devuelve las tramas completas que salieron."""
+        """Come los bytes que hayan llegado y devuelve los mensajes completos que salieron."""
         eventos = []
         for byte in datos:
             evento = self._comer(byte)
@@ -59,7 +59,7 @@ class Decodificador: # claude
 
     def _comer(self, byte):
         if self._cabecera is None:
-            # Botar lo que no sea cabecera es lo que resincroniza la app cuando abre a media trama
+            # Botar lo que no sea cabecera es lo que resincroniza la app cuando abre a medio mensaje
             if byte not in CUERPOS:
                 self.descartados += 1
                 return None
