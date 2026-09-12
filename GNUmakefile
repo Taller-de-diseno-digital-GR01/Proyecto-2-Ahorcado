@@ -25,6 +25,9 @@ PRJXRAY_DB_ROOT := /opt/openxc7/share/nextpnr/prjxray-db/artix7
 CHIPDB          := /opt/openxc7/share/nextpnr-xilinx/chipdb/xc7a35tcpg236.bin
 XDC             := src/fpga/basys3.xdc
 
+APP_DIR    := sw
+PYTHON     := python3
+
 DESIGN_SRCS := $(wildcard $(DESIGN_DIR)/*.sv)
 TB_SRCS     := $(wildcard $(SIM_DIR)/tb_*.sv)
 TBS         := $(patsubst $(SIM_DIR)/tb_%.sv,%,$(TB_SRCS))
@@ -50,7 +53,7 @@ BIT        ?= $(BIT_OUT)
 # el build si src/build/ quedó con binarios de otra máquina
 TOOLCHAIN_STAMP := $(BUILD_DIR)/.toolchain
 
-.PHONY: all help list sim wave dump test synth bitstream program connect clean check-tb check-fpga-toolchain
+.PHONY: all help list sim wave dump test test-app synth bitstream program connect clean check-tb check-fpga-toolchain
 
 all: bitstream program
 
@@ -61,6 +64,7 @@ help:
 	@echo "make wave TB=<modulo>  corre la simulación y abre GTKWave"
 	@echo "make dump TB=<modulo> SIGS=sig1,sig2,...  corre la simulación y exporta un SVG con vecdump"
 	@echo "make test"
+	@echo "make test-app           corre las pruebas de la app de PC con unittest, no necesita la tarjeta"
 	@echo "make synth SYNTH_TOP=<modulo>  sintetiza con yosys (genérico) y revisa que no haya latches inferidos"
 	@echo "make bitstream          genera $(BIT_OUT) con yosys + nextpnr-xilinx + prjxray (openXC7, sin Vivado)"
 	@echo "                        requiere /opt/openxc7/bin en el PATH (source /opt/openxc7/export.sh)"
@@ -225,6 +229,10 @@ test: check-tb # <-- Esto corre make sim para cada testbench en $(TBS), uno por 
 		$(MAKE) --no-print-directory sim TB=$$modulo || estado=1; \
 	done; \
 	exit $$estado
+
+# -t $(APP_DIR) es lo que deja importar los modulos sin paquete, igual que cuando corre la app
+test-app:
+	$(PYTHON) -m unittest discover -s $(APP_DIR)/pruebas -t $(APP_DIR)
 
 clean:
 	rm -rf $(BUILD_DIR)
