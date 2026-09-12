@@ -6,3 +6,6 @@ src/build/
 *.fasm
 *.frames
 *.bit
+
+__pycache__/
+*.pyc
