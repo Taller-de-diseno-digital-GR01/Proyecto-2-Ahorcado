@@ -101,6 +101,16 @@ del cuerpo que se parece a una cabecera, el filtro A-Z con acentos y con la ñ, 
 espejo la revelación de todas las posiciones de una letra, el relleno de arriba, la letra repetida,
 el apareo de respuestas cuando salen dos letras seguidas, y el reinicio entre partidas.
 
+Aparte hay un chequeo manual del teclado, que no es unittest y por eso vive en
+`sw/pruebas/teclado.py` sin el prefijo `test`.
+
+```
+make test-teclado
+```
+
+Imprime el byte que saldría hacia la FPGA por cada tecla apretada, y ESC lo corta. Necesita una
+terminal interactiva, con la entrada canalizada avisa y solo procesa lo que le llegue.
+
 Para probar el ciclo completo sin la tarjeta sirve un pseudoterminal. Se abre con `pty.openpty()`,
 se le pasa el `/dev/pts/N` a la app con `-p`, y por el otro extremo se le escriben los mensajes
 crudos mientras se le mandan teclas por la entrada estándar.
