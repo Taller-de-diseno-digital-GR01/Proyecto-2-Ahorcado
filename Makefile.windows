@@ -18,15 +18,23 @@
 #   - Icarus Verilog (iverilog, vvp)       -> https://bleyer.org/icarus/ (instalador para Windows)
 #   - GTKWave, opcional, solo para 'wave'  -> lo trae el mismo instalador de Icarus Verilog
 #   - yosys, opcional, solo para 'synth'   -> https://github.com/YosysHQ/oss-cad-suite-build
+#   - Vivado, opcional, solo para 'fpga-bitstream'/'fpga-program' -> agregar <instalacion de
+#     Vivado>/bin al PATH, o abrir esta terminal desde una "Vivado Tcl Shell".
 #
-# La síntesis + bitstream + programación de la Basys3 (yosys + nextpnr-xilinx + prjxray, el
-# toolchain "openXC7" que usa ./GNUmakefile para no depender de Vivado) no tiene un build nativo
-# confiable para Windows todavía, así que esos targets no se replican acá: 'check-fpga-toolchain'
-# explica las dos alternativas (WSL o Vivado).
+# La síntesis + bitstream + programación del *proyecto completo* (yosys + nextpnr-xilinx +
+# prjxray, el toolchain "openXC7" que usa ./GNUmakefile para no depender de Vivado) no tiene un
+# build nativo confiable para Windows todavía; 'check-fpga-toolchain' explica las alternativas
+# (WSL o Vivado) para ese caso.
+#
+# Para probar un módulo suelto en la Basys3 sin esperar a que exista un top.sv integrado, sí hay
+# flujo nativo acá: 'fpga-bitstream'/'fpga-program' usan Vivado en modo batch (sin .xpr) sobre un
+# harness de un solo módulo (ver src/fpga/harness/CONVENCION.txt) más las constraints de
+# src/fpga/basys3.xdc. Ver 'make -f Makefile.windows help'.
 
-DESIGN_DIR := src/design
-SIM_DIR    := src/sim
-BUILD_DIR  := src/build
+DESIGN_DIR  := src/design
+SIM_DIR     := src/sim
+BUILD_DIR   := src/build
+HARNESS_DIR := src/fpga/harness
 
 IVERILOG       := iverilog
 IVERILOG_FLAGS := -g2012
@@ -34,6 +42,9 @@ VVP            := vvp
 GTKWAVE        := gtkwave
 VECDUMP        := vecdump
 YOSYS          := yosys
+VIVADO         := vivado
+PART           := xc7a35tcpg236-1
+XDC            := src/fpga/basys3.xdc
 
 DESIGN_SRCS := $(wildcard $(DESIGN_DIR)/*.sv)
 TB_SRCS     := $(wildcard $(SIM_DIR)/tb_*.sv)
@@ -42,14 +53,26 @@ TBS         := $(patsubst $(SIM_DIR)/tb_%.sv,%,$(TB_SRCS))
 TB ?= $(firstword $(TBS))
 SYNTH_TOP ?= top
 
-VVP_OUT     := $(BUILD_DIR)/tb_$(TB).vvp
-VCD_OUT     := $(BUILD_DIR)/tb_$(TB).vcd
-SVG_OUT     := $(BUILD_DIR)/tb_$(TB).svg
-NETLIST_OUT := $(BUILD_DIR)/$(SYNTH_TOP)_synth.v
-SYNTH_LOG   := $(BUILD_DIR)/$(SYNTH_TOP)_synth.log
+# Fuentes para 'fpga-bitstream': por defecto solo el harness de SYNTH_TOP (ver
+# src/fpga/harness/CONVENCION.txt). Si ese harness instancia algún módulo de src/design/, hay
+# que agregarlo a mano, ej.:
+#   make -f Makefile.windows fpga-bitstream SYNTH_TOP=top_marcador \
+#        FPGA_SRCS="src/fpga/harness/top_marcador.sv src/design/marcador.sv"
+# A propósito no se usa $(DESIGN_SRCS) completo acá: para probar un módulo suelto no hace falta
+# arrastrar el resto del diseño, y si otro módulo no relacionado tiene un error de sintaxis (ver
+# 'sim'/'synth'), no tiene por qué bloquear esta prueba.
+FPGA_SRCS ?= $(HARNESS_DIR)/$(SYNTH_TOP).sv
+
+VVP_OUT      := $(BUILD_DIR)/tb_$(TB).vvp
+VCD_OUT      := $(BUILD_DIR)/tb_$(TB).vcd
+SVG_OUT      := $(BUILD_DIR)/tb_$(TB).svg
+NETLIST_OUT  := $(BUILD_DIR)/$(SYNTH_TOP)_synth.v
+SYNTH_LOG    := $(BUILD_DIR)/$(SYNTH_TOP)_synth.log
+FPGA_BUILD_DIR := $(BUILD_DIR)/fpga
+FPGA_BIT       := $(FPGA_BUILD_DIR)/$(SYNTH_TOP).bit
 
 .PHONY: all help list sim wave dump test synth clean check-tb check-tools check-fpga-toolchain \
-        bitstream program connect
+        check-vivado bitstream program connect fpga-bitstream fpga-program
 
 # Por defecto corre todos los testbenches; no arma bitstream (ver el comentario de arriba).
 all: test
@@ -63,6 +86,13 @@ help:
 	@echo "make -f Makefile.windows check-tools          revisa que iverilog/vvp/gtkwave/yosys esten en el PATH"
 	@echo "make -f Makefile.windows list                 lista los testbenches disponibles"
 	@echo "make -f Makefile.windows clean"
+	@echo ""
+	@echo "Probar un modulo suelto en la Basys3 (sin top.sv integrado, ver src/fpga/harness/CONVENCION.txt):"
+	@echo "make -f Makefile.windows fpga-bitstream SYNTH_TOP=<harness> FPGA_SRCS=\"arch1.sv arch2.sv ...\""
+	@echo "                               sintetiza + implementa + genera el .bit con Vivado (sin .xpr)"
+	@echo "make -f Makefile.windows fpga-program SYNTH_TOP=<harness>"
+	@echo "                               carga el .bit generado arriba a la Basys3 por JTAG (Vivado)"
+	@echo "make -f Makefile.windows check-vivado          revisa que 'vivado' este en el PATH"
 	@echo ""
 	@echo "Testbenches disponibles: $(TBS)"
 	@echo "TB por defecto si no se indica: $(TB)"
@@ -176,6 +206,41 @@ check-fpga-toolchain:
 	@exit 1
 
 bitstream program connect: check-fpga-toolchain
+
+# Diagnostico de Vivado, solo hace falta para 'fpga-bitstream'/'fpga-program' (prueba de un
+# modulo suelto, ver el comentario de FPGA_SRCS arriba). El proyecto completo sigue yendo por
+# 'check-fpga-toolchain' (openXC7 via WSL) o por Vivado fuera de este Makefile.
+check-vivado:
+	@command -v $(VIVADO) >/dev/null 2>&1 || { \
+		echo "ERROR: '$(VIVADO)' no esta en el PATH."; \
+		echo "Abrir una terminal desde 'Vivado 20xx.x Tcl Shell' (menu de inicio), o agregar"; \
+		echo "<instalacion de Vivado>/bin al PATH de esta terminal."; \
+		exit 1; \
+	}
+
+$(FPGA_BUILD_DIR):
+	mkdir -p $(FPGA_BUILD_DIR)
+
+# Sintesis + implementacion + bitstream de un modulo individual con Vivado, flujo "non-project"
+# (sin .xpr): sirve para probarlo solo en la Basys3 mientras no existe un top.sv integrado.
+# FPGA_SRCS es el harness de ese modulo (src/fpga/harness/<algo>.sv, con las señales que no van
+# a un pin fisico hardcodeadas a mano, ver CONVENCION.txt en esa carpeta) mas cualquier .sv de
+# src/design/ que ese harness instancie.
+ifeq ($(strip $(FPGA_SRCS)),)
+$(FPGA_BIT):
+	$(error FPGA_SRCS vacio. Uso: make -f Makefile.windows fpga-bitstream SYNTH_TOP=<harness> FPGA_SRCS="archivo1.sv archivo2.sv ...")
+else
+$(FPGA_BIT): $(FPGA_SRCS) $(XDC) | $(FPGA_BUILD_DIR) check-vivado
+	$(VIVADO) -mode batch -source src/fpga/build_bitstream.tcl \
+		-tclargs $(SYNTH_TOP) $(XDC) $(FPGA_BUILD_DIR) $(FPGA_SRCS)
+endif
+
+fpga-bitstream: check-vivado $(FPGA_BIT)
+
+# Carga el .bit generado arriba a la Basys3 por JTAG, via el hardware manager de Vivado.
+# Requiere la tarjeta conectada por USB y encendida (switch SW16) antes de correrlo.
+fpga-program: check-vivado $(FPGA_BIT)
+	$(VIVADO) -mode batch -source src/fpga/program_bitstream.tcl -tclargs $(FPGA_BIT)
 
 clean:
 	rm -rf $(BUILD_DIR)

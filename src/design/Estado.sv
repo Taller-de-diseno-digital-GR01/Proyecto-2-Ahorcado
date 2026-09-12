@@ -19,7 +19,7 @@
 //   10 -> resultado final
 // ============================================================
 
-module M05_Estado (
+module Estado (
     input  logic       clk,
     input  logic       rst,
     input  logic [2:0] state,

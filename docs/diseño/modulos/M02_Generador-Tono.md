@@ -10,8 +10,9 @@ M02_Generador-Tono
 flowchart LR
     IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>detecta fin de partida"]
     DEC_ST --> REG_EN["REG_ENABLE<br/>registro"]
-    IN_LST(["letra_state (de M07)"]) --> REG_EN
-    IN_LST --> MUX1{{"MUX 3:1<br/>tono acierto/fallo/fin"}}
+    IN_LST(["letra_state (de M07)"]) --> MUX1{{"MUX 3:1<br/>tono acierto/fallo/fin"}}
+    IN_LL(["letra_lista (de M07)"]) --> REG_EN
+    IN_LL --> MUX1
     DEC_ST --> MUX1
     MUX1 --> REG_N["REG_N<br/>registro (valor N)"]
     REG_EN --> CNT_DIV["CONT_DIVISOR<br/>contador (prescaler)"]
@@ -35,12 +36,12 @@ enunciado.
 - `clk`, `rst`.
 - `state[2:0]`: estado actual, desde M13_FSM, de ahí saca la entrada a un estado de fin de
   partida.
-- `letra_state[1:0]`: resultado de la última letra evaluada, desde M07_Comparador-letra. Se
-  asume, siguiendo la convención de pulsos limpios que ya usan `sel`/`ok`/`valid_word` en el
-  resto del proyecto, que M07 solo mantiene este valor en `01` (acierto) o `10` (fallo) durante
-  **un ciclo de reloj**, y en `00` el resto del tiempo; `11` queda reservado para letra repetida
-  y no dispara tono. **Este contrato queda pendiente de confirmar** contra la documentación real
-  de M07_Comparador-letra cuando se escriba, porque hoy solo existe su diagrama modular.
+- `letra_state[1:0]`: resultado de la última letra evaluada, desde M07_Comparador-letra, con la
+  codificación confirmada en `M07_Comparador-letra.md`, sección "Codificación de `letra_state`":
+  `00` fallo, `01` acierto, `10` repetida, `11` sin uso.
+- `letra_lista`: estrobo de un ciclo que acompaña a `letra_state`, desde M07_Comparador-letra,
+  indica que `letra_state` es válido en ese ciclo, en reposo el estrobo está en `0` y
+  `letra_state` no se debe interpretar.
 
 ## e) Salidas
 
@@ -117,22 +118,24 @@ que usa M09_Botones sobre el valor ya estable de cada botón.
 
 ### Selección de disparo y de frecuencia (MUX 3:1)
 
-Señal de disparo combinacional:
+Señal de disparo combinacional, calificando `letra_state` con `letra_lista` ya que sin ese
+estrobo el valor de `letra_state` no dice nada sobre si hay una letra nueva evaluada en este
+ciclo:
 
 ```
-trig = pulso_fin OR (letra_state == 2'b01) OR (letra_state == 2'b10)
+trig = pulso_fin OR (letra_lista AND letra_state == 2'b01) OR (letra_lista AND letra_state == 2'b00)
 ```
 
 El `MUX 3:1` decide, con prioridad fin > acierto > fallo, qué valor de `N` se carga en `REG_N`
 cuando `trig = 1`:
 
-| `pulso_fin` | `letra_state` | Tono seleccionado | `N` cargado en `REG_N` |
-|---|---|---|---|
-| 1 | XX | FIN | `N_FIN` |
-| 0 | 01 | ACIERTO | `N_ACIERTO` |
-| 0 | 10 | FALLO | `N_FALLO` |
-| 0 | 00 | (sin disparo) | `REG_N` conserva su valor |
-| 0 | 11 | (sin disparo, repetida) | `REG_N` conserva su valor |
+| `pulso_fin` | `letra_lista` | `letra_state` | Tono seleccionado | `N` cargado en `REG_N` |
+|---|---|---|---|---|
+| 1 | X | XX | FIN | `N_FIN` |
+| 0 | 1 | 01 | ACIERTO | `N_ACIERTO` |
+| 0 | 1 | 00 | FALLO | `N_FALLO` |
+| 0 | 1 | 10 | (sin disparo, repetida) | `REG_N` conserva su valor |
+| 0 | 0 | XX | (sin disparo) | `REG_N` conserva su valor |
 
 ### REG_ENABLE y CONT_DURACION
 
@@ -195,15 +198,19 @@ flowchart LR
     ANDF --> PFIN["pulso_fin"]
 
     LST(["letra_state[1:0]"]) --> CMPA{"CMP = 01<br/>acierto"}
-    LST --> CMPB{"CMP = 10<br/>fallo"}
+    LST --> CMPB{"CMP = 00<br/>fallo"}
+    LLIST(["letra_lista"]) --> ANDA["AND<br/>acierto calificado"]
+    CMPA --> ANDA
+    LLIST --> ANDB["AND<br/>fallo calificado"]
+    CMPB --> ANDB
     PFIN --> ORT["OR3<br/>trig"]
-    CMPA --> ORT
-    CMPB --> ORT
+    ANDA --> ORT
+    ANDB --> ORT
     ORT --> TRIG["trig"]
 
     PFIN --> MUXN{{"MUX 3:1<br/>N_FIN/N_ACIERTO/N_FALLO"}}
-    CMPA --> MUXN
-    CMPB --> MUXN
+    ANDA --> MUXN
+    ANDB --> MUXN
     MUXN --> DN["D-FF (bus)<br/>REG_N"]
     TRIG --> DN
     CLK1 --> DN
