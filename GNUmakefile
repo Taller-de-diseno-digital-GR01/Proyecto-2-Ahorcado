@@ -53,7 +53,7 @@ BIT        ?= $(BIT_OUT)
 # el build si src/build/ quedó con binarios de otra máquina
 TOOLCHAIN_STAMP := $(BUILD_DIR)/.toolchain
 
-.PHONY: all help list sim wave dump test test-app synth bitstream program connect clean check-tb check-fpga-toolchain
+.PHONY: all help list sim wave dump test test-app test-teclado synth bitstream program connect clean check-tb check-fpga-toolchain
 
 all: bitstream program
 
@@ -65,6 +65,7 @@ help:
 	@echo "make dump TB=<modulo> SIGS=sig1,sig2,...  corre la simulación y exporta un SVG con vecdump"
 	@echo "make test"
 	@echo "make test-app           corre las pruebas de la app de PC con unittest, no necesita la tarjeta"
+	@echo "make test-teclado       muestra el byte que sale por cada tecla, pide una terminal interactiva"
 	@echo "make synth SYNTH_TOP=<modulo>  sintetiza con yosys (genérico) y revisa que no haya latches inferidos"
 	@echo "make bitstream          genera $(BIT_OUT) con yosys + nextpnr-xilinx + prjxray (openXC7, sin Vivado)"
 	@echo "                        requiere /opt/openxc7/bin en el PATH (source /opt/openxc7/export.sh)"
@@ -233,6 +234,10 @@ test: check-tb # <-- Esto corre make sim para cada testbench en $(TBS), uno por 
 # -t $(APP_DIR) es lo que deja importar los modulos sin paquete, igual que cuando corre la app
 test-app:
 	$(PYTHON) -m unittest discover -s $(APP_DIR)/pruebas -t $(APP_DIR)
+
+# PYTHONPATH porque el script vive en pruebas/ pero importa los modulos de $(APP_DIR)
+test-teclado:
+	@PYTHONPATH=$(APP_DIR) $(PYTHON) $(APP_DIR)/pruebas/teclado.py
 
 clean:
 	rm -rf $(BUILD_DIR)
