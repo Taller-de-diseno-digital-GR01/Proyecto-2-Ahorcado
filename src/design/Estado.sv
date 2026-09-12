@@ -55,7 +55,7 @@ module Estado (
 
             // Estados de resultado
             3'b011,
-            3'b100,
+            3'b100:
                 state_led = 2'b10;
 
             default:
