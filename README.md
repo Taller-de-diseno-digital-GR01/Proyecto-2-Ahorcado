@@ -53,6 +53,10 @@ un solo archivo en [`docs/diseño/diseño.md`](docs/diseño/diseño.md).
 - [M12 - Contador de Intentos](docs/diseño/modulos/M12_Contador-Intentos.md)
 - [M13 - FSM](docs/diseño/modulos/M13_FSM.md)
 
+La app de PC, que tampoco lleva número de módulo porque no es hardware:
+
+- [APP_PC, la terminal del jugador](docs/diseño/APP_PC.md)
+
 Los dos bloques del subsistema UART que no llevan número de módulo:
 
 - [Periférico UART](docs/diseño/modulos/PERIFERICO_UART.md)
