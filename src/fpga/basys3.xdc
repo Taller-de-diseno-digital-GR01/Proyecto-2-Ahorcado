@@ -263,11 +263,11 @@ set_property PACKAGE_PIN N1 [get_ports {lcd_data_o[7]}]
 	#set_property IOSTANDARD LVCMOS33 [get_ports Vsync]
 
 
-##USB-lcd_rs_o232 Interface
-#set_property PACKAGE_PIN B18 [get_ports lcd_rs_oRx]						
-	#set_property IOSTANDARD LVCMOS33 [get_ports lcd_rs_oRx]
-#set_property PACKAGE_PIN A18 [get_ports lcd_rs_oTx]						
-	#set_property IOSTANDARD LVCMOS33 [get_ports lcd_rs_oTx]
+##USB-RS232 Interface
+set_property PACKAGE_PIN B18 [get_ports rx_i]
+	set_property IOSTANDARD LVCMOS33 [get_ports rx_i]
+set_property PACKAGE_PIN A18 [get_ports tx_o]
+	set_property IOSTANDARD LVCMOS33 [get_ports tx_o]
 
 
 ##USB HID (PS/2)
