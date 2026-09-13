@@ -13,3 +13,6 @@ src/build/
 *.log
 *.tcl
 clockInfo.txt
+
+__pycache__/
+*.pyc
