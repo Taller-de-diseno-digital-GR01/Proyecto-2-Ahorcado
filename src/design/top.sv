@@ -89,9 +89,9 @@ module top (
     );
 
     // M08_LFSR: escoge la palabra secreta al entrar a CARGA
-    // TODO: banco de palabras (REG_WBank) pendiente.
-    // Stub temporal: bank_word fijo en 0, mismo ancho que los parametros por defecto de lfsr
-    // (WORD_MAXLEN=15, LETRA_WIDTH=5 -> WORD_MAXLEN*LETRA_WIDTH+4 = 79 bits).
+    // TODO: banco de palabras (REG_WBank) pendiente de integrar por el equipo.
+    // Stub temporal: mismo ancho que los parametros por defecto de lfsr (WORD_MAXLEN=15,
+    // LETRA_WIDTH=5 -> WORD_MAXLEN*LETRA_WIDTH+4 = 79 bits).
     localparam int BANK_ADDR_WIDTH = 6;  // $clog2(50+1)
     localparam int WORD_WIDTH      = 79; // WORD_MAXLEN*LETRA_WIDTH+4
 
@@ -99,7 +99,20 @@ module top (
     logic [WORD_WIDTH-1:0]      bank_word_stub;
     logic [WORD_WIDTH-1:0]      word;
 
-    assign bank_word_stub = '0;
+    // TODO: placeholder de bring-up para poder probar el flujo completo en la FPGA sin el banco
+    // de palabras real. bank_word_stub queda fijo en "CARRO" sin importar la direccion que pida
+    // lfsr.
+    localparam logic [WORD_WIDTH-1:0] PALABRA_CARRO_TEMP = {
+        4'd5,                                                       // longitud = 5
+        5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, // letra15..letra6, sin usar
+        5'd14,                                                      // letra5 = O
+        5'd17,                                                      // letra4 = R
+        5'd17,                                                      // letra3 = R
+        5'd0,                                                       // letra2 = A
+        5'd2                                                        // letra1 = C
+    };
+
+    assign bank_word_stub = PALABRA_CARRO_TEMP;
 
     lfsr u_lfsr (
         .clk         (clk),
