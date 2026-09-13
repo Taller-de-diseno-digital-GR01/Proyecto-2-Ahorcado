@@ -12,8 +12,10 @@ Recibe time desde `M03_Temporizador` y num_ganadas desde `M06_Ganadas`. Ambos va
 
 * clk: reloj principal de la FPGA, de 100 MHz.
 * rst: reinicio del módulo.
-* time: tiempo restante de la partida, proveniente de `M03_Temporizador`.
-* num_ganadas: número de partidas ganadas, proveniente de `M06_Ganadas`.
+* time_value[7:0]: tiempo restante de la partida, proveniente de `M03_Temporizador`, en el mismo
+  formato BCD empacado que entrega ese módulo (`{decenas, unidades}`, un nibble cada uno).
+* num_ganadas[6:0]: número de partidas ganadas, proveniente de `M06_Ganadas`, en binario puro
+  (0 a 99).
 
 ---
 
@@ -36,7 +38,7 @@ La distribución propuesta es:
 
 ## f) Relación con otros módulos
 
-time proviene directamente de `M03_Temporizador`, mientras que num_ganadas proviene de `M06_Ganadas`. `M01_Marcador` no modifica ninguno de estos valores, sino que únicamente realiza su conversión y despliegue.
+time_value proviene directamente de `M03_Temporizador` ya en BCD, mientras que num_ganadas proviene de `M06_Ganadas` en binario. `M01_Marcador` no modifica ninguno de estos valores: a time_value solo le extrae los nibbles, a num_ganadas lo convierte a BCD, y ambos se despliegan igual.
 
 El marcador se mantiene funcionando continuamente y no necesita señales de habilitación provenientes de la FSM.
 
@@ -48,16 +50,19 @@ rst reinicia tanto el contador de refresco como el selector del dígito activo.
 
 ## g) Explicación de funcionamiento
 
-Los valores time y `num_ganadas` se separan en decenas y unidades mediante lógica combinacional.
-
-Para cada valor `x`:
-
-$$
-decenas = \left\lfloor \frac{x}{10} \right\rfloor
-$$
+`time_value` ya llega empacado en BCD, así que sus dos dígitos se obtienen extrayendo cada
+nibble directo, sin ninguna operación aritmética:
 
 $$
-unidades = x - 10(decenas)
+time\_decenas = time\_value[7:4] \qquad time\_unidades = time\_value[3:0]
+$$
+
+`num_ganadas` sí llega en binario puro, así que sus dos dígitos se calculan con división y
+módulo mediante lógica combinacional:
+
+$$
+win\_decenas = \left\lfloor \frac{num\_ganadas}{10} \right\rfloor \qquad win\_unidades =
+num\_ganadas - 10(win\_decenas)
 $$
 
 De esta forma se obtienen cuatro valores BCD:
@@ -130,20 +135,22 @@ El mismo valor selecciona el ánodo correspondiente:
 | `10`      | `1011`    |
 | `11`      | `0111`    |
 
-Suponiendo segmentos activos en bajo, el decodificador BCD a 7 segmentos utiliza:
+Suponiendo segmentos activos en bajo, el decodificador BCD a 7 segmentos utiliza `seg[6:0] =
+gfedcba`, es decir `seg[0] = a` hasta `seg[6] = g`. Es el mismo orden que asigna a mano
+`basys3.xdc` (`seg[0]→CA`, `seg[1]→CB`, ..., `seg[6]→CG`):
 
-| BCD    | Número | `abcdefg` |
+| BCD    | Número | `gfedcba` |
 | ------ | -----: | --------- |
-| `0000` |      0 | `0000001` |
-| `0001` |      1 | `1001111` |
-| `0010` |      2 | `0010010` |
-| `0011` |      3 | `0000110` |
-| `0100` |      4 | `1001100` |
-| `0101` |      5 | `0100100` |
-| `0110` |      6 | `0100000` |
-| `0111` |      7 | `0001111` |
+| `0000` |      0 | `1000000` |
+| `0001` |      1 | `1111001` |
+| `0010` |      2 | `0100100` |
+| `0011` |      3 | `0110000` |
+| `0100` |      4 | `0011001` |
+| `0101` |      5 | `0010010` |
+| `0110` |      6 | `0000010` |
+| `0111` |      7 | `1111000` |
 | `1000` |      8 | `0000000` |
-| `1001` |      9 | `0000100` |
+| `1001` |      9 | `0010000` |
 
 El punto decimal no se utiliza, por lo que dp se mantiene apagado.
 

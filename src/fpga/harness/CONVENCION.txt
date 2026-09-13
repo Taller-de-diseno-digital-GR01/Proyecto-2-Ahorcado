@@ -1,0 +1,12 @@
+Convencion para probar un modulo suelto en la Basys3 sin top.sv integrado (ver
+"make -f Makefile.windows help", targets fpga-bitstream / fpga-program):
+
+Cada archivo de esta carpeta es un top-level de un solo modulo, con nombre de modulo
+top_<algo>.sv. Instancia el modulo real de src/design/ y conecta a mano:
+  - las señales que si importa probar en el hardware real, a los nombres de puerto que
+    basys3.xdc ya tiene descomentados (clk, rst, sw[0], sw[1], btn_sel, btn_ok, seg, an,
+    dp, led_state, LED[1:15], buzzer, RS, R/W, E, etc.);
+  - las que no interesan para esa prueba puntual, hardcodeadas (a 0, 1, o un valor fijo).
+
+No son parte del RTL del proyecto ni se documentan como modulo (M0X_*.md): son arneses de
+prueba de hardware, descartables.

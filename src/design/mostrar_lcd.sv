@@ -29,6 +29,7 @@ module mostrar_lcd (
   localparam BIT_RS    = 1;
   localparam BIT_CLEAR = 2;
   localparam BIT_HOME  = 3;
+  localparam BIT_BUSY  = 8;
   localparam BIT_DONE  = 9;
 
   // Codificacion de state, fijada por fsm.sv. PERDIO_INTENTOS y PERDIO_TIEMPO se unificaron en
@@ -119,6 +120,10 @@ module mostrar_lcd (
   logic done;
   assign done = i_rdata[BIT_DONE];
 
+  // busy: PERIFERICO_LCD sigue corriendo su encendido del HD44780, no atiende bus todavia
+  logic busy;
+  assign busy = i_rdata[BIT_BUSY];
+
   // "cambio" reemplaza al pulso show que tenia la FSM principal: se repinta cuando cambia el
   // state, o cuando cambia lo que compone la pantalla actual (modo en SELECCION, mascara en
   // JUEGO). Se compara contra la foto "activa", asi que si el contenido cambia otra vez a medio
@@ -136,7 +141,7 @@ module mostrar_lcd (
 
     case (estado)
       // CARGA no tiene pantalla propia (M04_Mostrar-LCD.md g), no dispara redibujado
-      IDLE: if (cambio && i_state != ST_CARGA) begin
+      IDLE: if (cambio && i_state != ST_CARGA && !busy) begin
               estado_siguiente    = HOME;
               pos_siguiente       = 4'd0;
               byte_step_siguiente = 1'b0;

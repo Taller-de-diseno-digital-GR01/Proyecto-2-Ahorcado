@@ -19,7 +19,7 @@
 //   10 -> resultado final
 // ============================================================
 
-module M05_Estado (
+module Estado (
     input  logic       clk,
     input  logic       rst,
     input  logic [2:0] state,
@@ -55,8 +55,7 @@ module M05_Estado (
 
             // Estados de resultado
             3'b011,
-            3'b100,
-            3'b101:
+            3'b100:
                 state_led = 2'b10;
 
             default:
