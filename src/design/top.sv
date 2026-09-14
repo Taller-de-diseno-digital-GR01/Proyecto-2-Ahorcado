@@ -90,10 +90,10 @@ module top (
 
     // M08_LFSR: escoge la palabra secreta al entrar a CARGA
     // TODO: banco de palabras (REG_WBank) pendiente de integrar por el equipo.
-    // Stub temporal: mismo ancho que los parametros por defecto de lfsr (WORD_MAXLEN=15,
-    // LETRA_WIDTH=5 -> WORD_MAXLEN*LETRA_WIDTH+4 = 79 bits).
+    // Stub temporal: mismo ancho que los parametros por defecto de lfsr (WORD_MAXLEN=12,
+    // LETRA_WIDTH=5 -> WORD_MAXLEN*LETRA_WIDTH+4 = 64 bits).
     localparam int BANK_ADDR_WIDTH = 6;  // $clog2(50+1)
-    localparam int WORD_WIDTH      = 79; // WORD_MAXLEN*LETRA_WIDTH+4
+    localparam int WORD_WIDTH      = 64; // WORD_MAXLEN*LETRA_WIDTH+4
 
     logic [BANK_ADDR_WIDTH-1:0] bank_addr;
     logic [WORD_WIDTH-1:0]      bank_word_stub;
@@ -103,13 +103,13 @@ module top (
     // de palabras real. bank_word_stub queda fijo en "CARRO" sin importar la direccion que pida
     // lfsr.
     localparam logic [WORD_WIDTH-1:0] PALABRA_CARRO_TEMP = {
-        4'd5,                                                       // longitud = 5
-        5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, // letra15..letra6, sin usar
-        5'd14,                                                      // letra5 = O
-        5'd17,                                                      // letra4 = R
-        5'd17,                                                      // letra3 = R
-        5'd0,                                                       // letra2 = A
-        5'd2                                                        // letra1 = C
+        4'd5,                                           // longitud = 5
+        5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0,       // letra12..letra6, sin usar
+        5'd14,                                           // letra5 = O
+        5'd17,                                           // letra4 = R
+        5'd17,                                           // letra3 = R
+        5'd0,                                            // letra2 = A
+        5'd2                                             // letra1 = C
     };
 
     assign bank_word_stub = PALABRA_CARRO_TEMP;
@@ -124,12 +124,10 @@ module top (
         .o_word      (word),
         .o_valid_word(valid_word)
     );
-    //Corregi el ancho de bits del modulos: lsfr tiene 79 bits, comparador_letra tiene 75 bits, transmisor_uart tiene 75 bits, mostrar_lcd tiene 60 bits.
-    // M07_Comparador-letra: WORD_MAXLEN se sobreescribe a 15 (en vez del default 12) para que
-    // coincida con el formato que empaqueta lfsr (M08_LFSR.md, h): word[78:0] =
-    // {longitud[3:0], letra15[4:0], ..., letra1[4:0]}. Con WORD_MAXLEN=15, i_word queda en
-    // exactamente 75 bits (word[74:0], sin la longitud) e i_word_length sigue en 4 bits
-    // ($clog2(16)=4, igual que con 12), asi que se conectan directo sin adaptador de por medio.
+    // M07_Comparador-letra: WORD_MAXLEN se queda en su default (12), que ya coincide con el
+    // formato que empaqueta lfsr (M08_LFSR.md, h): word[63:0] =
+    // {longitud[3:0], letra12[4:0], ..., letra1[4:0]}. i_word es exactamente word[59:0] (sin la
+    // longitud) e i_word_length es word[63:60], se conectan directo sin adaptador de por medio.
     //
     // Pendiente de receptor_uart (REG_Letra-in), aun no instanciado
     logic [7:0] letra_in;
@@ -137,15 +135,15 @@ module top (
 
     logic [1:0] letra_state; // hacia generador_tono y transmisor_uart
     logic       letra_lista; // idem
-    logic [14:0] mascara;    // hacia mostrar_lcd y transmisor_uart (15 bits, ver nota de arriba)
+    logic [11:0] mascara;    // hacia mostrar_lcd y transmisor_uart
 
-    comparador_letra #(.WORD_MAXLEN(15)) u_comparador_letra (
+    comparador_letra u_comparador_letra (
         .clk              (clk),
         .rst              (rst),
         .i_letra          (letra_in),
         .i_letra_nueva    (letra_nueva),
-        .i_word           (word[74:0]),
-        .i_word_length    (word[78:75]),
+        .i_word           (word[59:0]),
+        .i_word_length    (word[63:60]),
         .i_state          (state),
         .o_letra_state    (letra_state),
         .o_letra_lista    (letra_lista),
@@ -174,8 +172,8 @@ module top (
     );
 
     // M11_Transmisor-UART: arma y envia la trama de estado del juego hacia la PC
-    // WORD_MAXLEN se sobreescribe a 15, igual que en comparador_letra, para que i_mascara
-    // (15 bits) coincida con la mascara que ese modulo ya produce.
+    // WORD_MAXLEN se queda en su default (12), igual que en comparador_letra, asi que i_mascara
+    // coincide directo con la mascara que ese modulo ya produce.
     // Pendiente de arbitro_uart/periferico_uart, aun no instanciados
     logic        tx_bus_we;
     logic [1:0]  tx_bus_addr;
@@ -183,7 +181,7 @@ module top (
     logic [31:0] tx_bus_rdata;
     logic        tx_bus_libre;
 
-    transmisor_uart #(.WORD_MAXLEN(15)) u_transmisor_uart (
+    transmisor_uart u_transmisor_uart (
         .clk          (clk),
         .rst          (rst),
         .i_state      (state),
@@ -191,7 +189,7 @@ module top (
         .i_letra_state(letra_state),
         .i_letra_lista(letra_lista),
         .i_intentos   (intentos),
-        .i_word_length(word[78:75]),
+        .i_word_length(word[63:60]),
         .i_mascara    (mascara),
         .i_rdata      (tx_bus_rdata),
         .i_bus_libre  (tx_bus_libre),
@@ -275,15 +273,10 @@ module top (
     );
 
     // Adaptador REG_Palabra-escogida -> mostrar_lcd: convierte el codigo de 5 bits (0-25) de
-    // cada letra a ASCII (+8'h41). mostrar_lcd solo soporta 12 letras (i_word[95:0] hardcodeado,
-    // no parametrizado como comparador_letra/transmisor_uart), asi que se usan las primeras 12
-    // letras de word (bits [59:0], letra1 en la posicion 0 del bus ASCII, mismo orden que usa
-    // mostrar_lcd internamente con i_word[pos*8 +: 8]) y se trunca mascara a esos mismos 12 bits.
-    //
-    // El truncamiento es seguro: el equipo acordo que el banco de palabras (REG_WBank, pendiente
-    // de integrar) limita cada palabra a maximo 12 letras, asi que las posiciones 12-14 de
-    // mascara siempre son relleno (nunca datos reales) y word nunca usa las letras 13-15 que
-    // lfsr/comparador_letra dejan disponibles con WORD_MAXLEN=15.
+    // cada letra a ASCII (+8'h41). mostrar_lcd espera las 12 letras de word empacadas en ASCII
+    // (i_word[95:0], letra1 en la posicion 0 del bus, mismo orden que usa mostrar_lcd internamente
+    // con i_word[pos*8 +: 8]); no hace falta truncar nada mas, word y mascara ya vienen en 12
+    // letras desde lfsr/comparador_letra.
     localparam int LCD_MAXLEN = 12;
 
     logic [LCD_MAXLEN*8-1:0] word_ascii;
@@ -307,8 +300,8 @@ module top (
         .i_state       (state),
         .i_modo        (modo),
         .i_word        (word_ascii),
-        .i_word_length (word[78:75]),
-        .i_mascara     (mascara[11:0]),
+        .i_word_length (word[63:60]),
+        .i_mascara     (mascara),
         .i_rdata       (lcd_bus_rdata),
         .o_addr        (lcd_bus_addr),
         .o_write_enable(lcd_bus_we),

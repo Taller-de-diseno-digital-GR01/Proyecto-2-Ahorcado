@@ -18,10 +18,10 @@ module tb_lfsr;
     logic       rst;
     logic [2:0] i_state;
     logic       i_modo;
-    logic [78:0] i_bank_word;
+    logic [63:0] i_bank_word;
 
     logic [5:0] o_bank_addr;
-    logic [78:0] o_word;
+    logic [63:0] o_word;
     logic       o_valid_word;
 
     int errores = 0;
@@ -38,7 +38,7 @@ module tb_lfsr;
     );
 
     // "ROM" de prueba: devuelve la propia dirección pedida, con relleno de ceros
-    assign i_bank_word = {73'b0, o_bank_addr};
+    assign i_bank_word = {58'b0, o_bank_addr};
 
     initial clk = 1'b0;
     always #5 clk = ~clk;

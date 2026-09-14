@@ -66,14 +66,14 @@ module tb_top;
     localparam int CICLOS_BIT = 54 * 16;
 
     // Palabra de prueba fija "CARRO" (5 letras: C A R R O), mismo formato que empaqueta lfsr
-    localparam logic [78:0] PALABRA_CARRO = {
-        4'd5,                                                       // longitud = 5
-        5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, // letra15..letra6, sin usar
-        5'd14,                                                      // letra5 = O
-        5'd17,                                                      // letra4 = R
-        5'd17,                                                      // letra3 = R
-        5'd0,                                                       // letra2 = A
-        5'd2                                                        // letra1 = C
+    localparam logic [63:0] PALABRA_CARRO = {
+        4'd5,                                     // longitud = 5
+        5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, // letra12..letra6, sin usar
+        5'd14,                                     // letra5 = O
+        5'd17,                                     // letra4 = R
+        5'd17,                                     // letra3 = R
+        5'd0,                                      // letra2 = A
+        5'd2                                       // letra1 = C
     };
 
     task automatic anotar(input string nombre, input bit ok);
@@ -141,7 +141,7 @@ module tb_top;
         enviar_letra("O");
         repeat (20) @(posedge clk);
 
-        anotar("con las 4 letras correctas la mascara queda completa", dut.mascara === 15'h7FFF);
+        anotar("con las 4 letras correctas la mascara queda completa", dut.mascara === 12'hFFF);
         anotar("la fsm pasa a GANO", dut.state === ST_GANO);
         anotar("el marcador de partidas ganadas sube a 1", dut.num_ganadas === 7'd1);
         anotar("los intentos fallidos no volvieron a subir", dut.intentos === 3'd1);
