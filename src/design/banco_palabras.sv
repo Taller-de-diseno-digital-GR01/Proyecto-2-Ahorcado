@@ -72,7 +72,40 @@ module banco_palabras #(
     rom_ascii[50] = "LIBRO"; rom_longitud[50] = 4'd5;
   end
 
-  // TODO: lectura de rom_ascii[i_bank_addr]/rom_longitud[i_bank_addr] y empaque a o_bank_word
-  // en el formato {longitud[3:0], letra_WORD_MAXLEN[4:0], ..., letra1[4:0]} de M08_LFSR.md.
+  // Convierte ASCII 'A'..'Z' al codigo de 5 bits usado por el resto del diseño:
+  // A=0, B=1, ..., Z=25.
+  function automatic logic [LETRA_WIDTH-1:0] ascii_a_codigo(input logic [7:0] c);
+    begin
+      if ((c >= 8'h41) && (c <= 8'h5A))
+        ascii_a_codigo = c - 8'h41;
+      else
+        ascii_a_codigo = RELLENO;
+    end
+  endfunction
+
+  // Lectura combinacional de la direccion solicitada por el LFSR y empaque de la palabra.
+  // Formato de salida:
+  // {longitud[3:0], letra_WORD_MAXLEN[4:0], ..., letra2[4:0], letra1[4:0]}
+  always_comb begin
+    o_bank_word = '0;
+
+    if ((i_bank_addr >= 1) && (i_bank_addr <= N_PALABRAS)) begin
+      // Longitud en los 4 bits superiores.
+      o_bank_word[WORD_MAXLEN*LETRA_WIDTH +: 4] = rom_longitud[i_bank_addr];
+
+      // letra1 queda en los bits menos significativos.
+      for (int pos = 0; pos < WORD_MAXLEN; pos++) begin
+        if (pos < rom_longitud[i_bank_addr]) begin
+          o_bank_word[pos*LETRA_WIDTH +: LETRA_WIDTH] =
+            ascii_a_codigo(
+              rom_ascii[i_bank_addr][((rom_longitud[i_bank_addr]-1-pos)*8) +: 8]
+            );
+        end
+        else begin
+          o_bank_word[pos*LETRA_WIDTH +: LETRA_WIDTH] = RELLENO;
+        end
+      end
+    end
+  end
 
 endmodule
