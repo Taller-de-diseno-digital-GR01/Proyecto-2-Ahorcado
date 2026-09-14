@@ -2464,8 +2464,8 @@ M13_FSM pase a JUEGO.
   módulo decodifica la entrada a ese estado igual que hacen M02, M06, M11 y M12 con sus propios
   eventos de interés.
 - `modo`: FACIL o DIFICIL, desde M13_FSM. Acota el rango de palabras válidas.
-- `bank_word[78:0]`: palabra leída de `REG_WBank` en la dirección que M08 acaba de pedir,
-  formato `{longitud[3:0], letra15[4:0], ..., letra1[4:0]}` (ver h). Combinacional respecto a
+- `bank_word[63:0]`: palabra leída de `REG_WBank` en la dirección que M08 acaba de pedir,
+  formato `{longitud[3:0], letra12[4:0], ..., letra1[4:0]}` (ver h). Combinacional respecto a
   `bank_addr`, no hay reloj de por medio en la ROM.
 
 ## e) Salidas
@@ -2473,7 +2473,7 @@ M13_FSM pase a JUEGO.
 - `bank_addr[5:0]`: dirección hacia `REG_WBank`, valores `1`–`50`. No está en la lista original
   de `nivel03.md` (ver nota en b), pero es imprescindible para que el módulo tenga con qué
   direccionar la ROM.
-- `word[78:0]`: palabra escogida, mismo formato que `bank_word`, hacia `REG_Palabra-escogida`.
+- `word[63:0]`: palabra escogida, mismo formato que `bank_word`, hacia `REG_Palabra-escogida`.
 - `valid_word`: bandera de palabra lista, hacia M13_FSM.
 
 ## f) Explicación de la relación con otros módulos
@@ -2544,7 +2544,7 @@ otro, sin relación con la palabra anterior.
 | `N_PALABRAS_DIFICIL` | 20 | Subconjunto de palabras de 6+ letras, por definir en equipo al armar la ROM. |
 | `LFSR_WIDTH` | 6 bits | `$clog2(N_PALABRAS+1) = 6`, cubre direcciones 1–50 con margen (hasta 63) sin necesitar un ancho mayor. |
 | `IDX_DIFICIL_WIDTH` | 5 bits | `$clog2(32)`, ancho natural de los 5 bits menos significativos de `REG_LFSR` que se reutilizan como índice hacia `ROM_IDX_DIFICIL`. |
-| `WORD_MAXLEN` | 15 | Igual límite que usa M04/M11, columnas del PmodCLP. |
+| `WORD_MAXLEN` | 12 | Longitud máxima de palabra que fija el enunciado (3.1), igual valor que usan M04/M11. |
 | `LETRA_WIDTH` | 5 bits | Alcanza para 26 códigos (A-Z). |
 
 `bank_addr` y `word`/`bank_word` van con `parameter`/`localparam` calculados a partir de estos

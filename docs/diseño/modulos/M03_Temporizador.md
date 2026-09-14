@@ -9,9 +9,12 @@ M03_Temporizador
 ```mermaid
 flowchart LR
     IN_STATE(["i_state (de FSM)"]) --> DECJ["DEC_JUEGO<br/>flanco de entrada"]
-    IN_STATE --> DECF["DEC_FIN<br/>flanco de entrada a GANO/PERDIO"]
+    IN_STATE --> DECFN["DEC_FIN<br/>nivel, en GANO o PERDIO"]
+    IN_STATE --> DECF["FLANCO_FIN<br/>flanco de entrada a GANO/PERDIO"]
     DECJ -->|"start interno"| REG_T["REG_TIEMPO<br/>registro"]
     DECJ --> REG_RUN["REG_RUNNING<br/>registro"]
+    DECFN -->|"apaga running"| REG_RUN
+    DECF -->|"reinicia a 00"| REG_T
     IN_MODO(["modo (de FSM)"]) --> MUX1{{"MUX 2:1<br/>tiempo inicial"}}
     MUX1 --> REG_T
     CNT_PRE["CONT_PRESCALER<br/>contador (100MHz→1Hz)"] --> CMP1{"CMP = 0<br/>habilita decremento"}
@@ -33,9 +36,10 @@ flowchart LR
 Controla el tiempo disponible para la partida y el tiempo mínimo que se muestra el resultado.
 Al ver que `i_state` entró a JUEGO, carga el tiempo inicial según el `modo` recibido y arranca la
 cuenta regresiva; al llegar a cero, avisa a la `FSM` mediante una señal `tiempo_agotado`. Al ver
-que `i_state` entró a GANO o a PERDIO, cuenta 3 s y levanta `fin_espera` para que la `FSM` pueda
-volver a SELECCION. Entrega el tiempo restante en todo momento a `M01_Marcador` para su
-despliegue.
+que `i_state` entró a GANO o a PERDIO, corta la cuenta regresiva de inmediato (la partida ya se
+resolvió por palabra completa o por intentos, sin necesidad de agotar el tiempo), reinicia el
+tiempo mostrado a 00, y cuenta 3 s para levantar `fin_espera` y que la `FSM` pueda volver a
+SELECCION. Entrega el tiempo restante en todo momento a `M01_Marcador` para su despliegue.
 
 ## d) Entradas
 
@@ -73,9 +77,16 @@ tiempo restante en 1 cada vez. Cuando el contador llega a 0, se levanta `tiempo_
 apaga `running` automáticamente (ya no hay nada que contar) y `tiempo_agotado` se mantiene en
 alto hasta la siguiente entrada a JUEGO.
 
-Por separado, al detectar el flanco de entrada a GANO o a PERDIO, M03 arranca un segundo contador
-con el mismo `tick_1hz` del prescaler. A los 3 pulsos levanta `fin_espera`, y se mantiene en alto
-hasta la siguiente entrada a un estado de fin (la de la próxima partida), igual que
+`running` también se apaga, sin esperar a que el tiempo llegue a 0, apenas `i_state` entra a GANO
+o a PERDIO: la partida ya se resolvió (palabra completa o sexto fallo) y no tiene sentido seguir
+descontando en el fondo mientras el LCD muestra el resultado. En el mismo flanco de entrada a
+GANO/PERDIO, el tiempo mostrado se reinicia a 00 (no se congela en el valor que tenía), así que
+el jugador ve el resultado sin una cuenta regresiva corriendo de fondo ni un número residual de la
+partida anterior.
+
+Por separado, al detectar ese mismo flanco de entrada a GANO o a PERDIO, M03 arranca un segundo
+contador con el mismo `tick_1hz` del prescaler. A los 3 pulsos levanta `fin_espera`, y se mantiene
+en alto hasta la siguiente entrada a un estado de fin (la de la próxima partida), igual que
 `tiempo_agotado` se mantiene hasta el siguiente arranque. El prescaler es uno solo y corre libre
 sin depender de en qué estado esté la FSM, así que sirve para las dos cuentas a la vez.
 
@@ -87,25 +98,27 @@ divisor por 10 adicional; el costo es usar dos contadores en cascada en vez de u
 bits.
 
 Como no existe una entrada `detener`, la bandera `running` se apaga sola cuando el contador
-llega a cero, en vez de por una señal externa. `start` ya no es un puerto, es la señal interna
-`dec_juego & ~dec_juego_prev` que detecta el flanco de entrada a JUEGO, con el mismo par
-registro-comparador que usa `M11_Transmisor-UART` para sus propios pulsos de disparo. Tabla de
-verdad de `running` (entradas `start` ya interno, `running` actual y `zero` = "el contador de
-tiempo ya está en 0"; salida `running_next`):
+llega a cero o cuando `i_state` entra a GANO/PERDIO, en vez de por una señal externa. `start` ya
+no es un puerto, es la señal interna `dec_juego & ~dec_juego_prev` que detecta el flanco de
+entrada a JUEGO, con el mismo par registro-comparador que usa `M11_Transmisor-UART` para sus
+propios pulsos de disparo; `dec_fin` es el nivel `(i_state == GANO) || (i_state == PERDIO)`, sin
+necesitar el flanco para esto (mientras se siga en GANO/PERDIO, `running` se queda apagado).
+`start` tiene prioridad total: si `start` está en alto, `running_next` es `1` sin importar los
+demás. Si no, `running_next = running AND NOT zero AND NOT dec_fin`:
 
-| start | running | zero | running_next |
+| running | zero | dec_fin | running_next (con start=0) |
 |---|---|---|---|
-| 0 | 0 | 0 | 0 |
-| 0 | 0 | 1 | 0 |
-| 0 | 1 | 0 | 1 |
-| 0 | 1 | 1 | 0 |
+| 0 | X | X | 0 |
 | 1 | 0 | 0 | 1 |
-| 1 | 0 | 1 | 1 |
-| 1 | 1 | 0 | 1 |
-| 1 | 1 | 1 | 1 |
+| 1 | 1 | 0 | 0 |
+| 1 | X | 1 | 0 |
 
-El hhabilitador de conteo
-de los contadores BCD es `CTEN = running · tick_1Hz`.
+El habilitador de conteo de los contadores BCD es `CTEN = running · tick_1Hz`. `REG_TIEMPO` se
+recarga con el tiempo inicial en `start`, se reinicia a `00` en el flanco `pulso_fin` (misma señal
+que dispara `CONT_ESPERA` más abajo), y decrementa con `CTEN` el resto del tiempo; el reinicio a
+`00` tiene prioridad sobre el decremento porque usa la misma estructura `if/else if` que `start`,
+así que nunca compiten en el mismo ciclo (`dec_juego` y `dec_fin` son estados mutuamente
+excluyentes de la FSM).
 
 El `tick_1Hz` se genera con un contador binario de 27 bits que cuenta en modo descendente,
 cargado con el valor `100 000 000 − 1` a 100 MHz; se usa la salida de acarreo/borrow (Ripple
@@ -135,8 +148,10 @@ flowchart LR
     ANDJ --> START(["start"])
 
     ZERO(["zero<br/>(tiempo = 0, 8 bits BCD)"]) --> NOT1["NOT"]
-    RUNQ["running (Q)"] --> AND1["AND2"]
+    DECF --> NOT2["NOT"]
+    RUNQ["running (Q)"] --> AND1["AND3"]
     NOT1 --> AND1
+    NOT2 --> AND1
     AND1 --> OR1["OR2"]
     START --> OR1
     OR1 --> D1["D-FF<br/>running"]

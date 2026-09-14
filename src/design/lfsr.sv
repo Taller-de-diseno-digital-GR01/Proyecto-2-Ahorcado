@@ -1,7 +1,7 @@
 module lfsr #(
   parameter N_PALABRAS = 50,         // mínimo que exige el enunciado
-  parameter N_PALABRAS_DIFICIL = 32, // subconjunto de palabras de 6+ letras
-  parameter WORD_MAXLEN = 12,        // columnas del PmodCLP, igual límite que M04/M11
+  parameter N_PALABRAS_DIFICIL = 32, // subconjunto de palabras de 6+ letras, direcciones 1-32 en banco_palabras.sv
+  parameter WORD_MAXLEN = 12,        // longitud maxima de palabra (enunciado 3.1), igual valor que M04/M11
   parameter LETRA_WIDTH = 5          // alcanza para 26 códigos (A-Z)
 ) (
   input logic clk,

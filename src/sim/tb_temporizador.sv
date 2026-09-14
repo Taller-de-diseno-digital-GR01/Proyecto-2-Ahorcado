@@ -154,6 +154,23 @@ module tb_temporizador;
         @(posedge clk); #1;
         `CHECK_BIT("salir de GANO: fin_espera sigue en 1", fin_espera, 1'b1)
 
+        // 7.5) Ganar o perder por intentos, con tiempo de sobra: entrar a GANO antes de que el
+        //      tiempo llegue a 0 tiene que apagar running y resetear tiempo a 00 de inmediato,
+        //      en vez de seguir contando en el fondo mientras se muestra el resultado.
+        modo = 1'b0;
+        `ARRANCA_JUEGO
+        `ESPERA_TICK
+        `ESPERA_TICK
+        `CHECK("con tiempo de sobra: tiempo antes de ganar", tiempo, `BCD(58))
+        i_state = ST_GANO;
+        @(posedge clk); #1;
+        `CHECK_BIT("ganar con tiempo de sobra: running se apaga", dut.running, 1'b0)
+        `CHECK("ganar con tiempo de sobra: tiempo se resetea a 00", tiempo, `BCD(0))
+        `ESPERA_TICK
+        `ESPERA_TICK
+        `CHECK("ganar con tiempo de sobra: tiempo se queda en 00", tiempo, `BCD(0))
+        `CHECK_BIT("ganar con tiempo de sobra: tiempo_agotado no se activa", tiempo_agotado, 1'b0)
+
         // 8) Un nuevo start en modo dificil (1), entrando de nuevo a JUEGO, recarga con 45 s
         modo = 1'b1;
         `ARRANCA_JUEGO
