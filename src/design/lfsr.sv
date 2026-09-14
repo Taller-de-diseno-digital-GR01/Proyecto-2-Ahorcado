@@ -1,7 +1,7 @@
 module lfsr #(
   parameter N_PALABRAS = 50,         // mínimo que exige el enunciado
-  parameter N_PALABRAS_DIFICIL = 20, // subconjunto de palabras de 6+ letras
-  parameter WORD_MAXLEN = 15,        // columnas del PmodCLP, igual límite que M04/M11
+  parameter N_PALABRAS_DIFICIL = 32, // subconjunto de palabras de 6+ letras
+  parameter WORD_MAXLEN = 12,        // columnas del PmodCLP, igual límite que M04/M11
   parameter LETRA_WIDTH = 5          // alcanza para 26 códigos (A-Z)
 ) (
   input logic clk,
@@ -45,14 +45,13 @@ module lfsr #(
 
   assign pulso_carga = dec_carga & ~dec_carga_prev;
 
-  // ROM_IDX_DIFICIL: direcciones (dentro del banco de 50) de las palabras de 6+ letras.
-  // TODO: mapeo lineal como placeholder (últimas N_PALABRAS_DIFICIL direcciones del banco);
-  // reemplazar por el contenido real de REG_WBank.
+  // ROM_IDX_DIFICIL: direcciones dentro del banco correspondientes al subconjunto
+  // de palabras de 6+ letras. En banco_palabras esas palabras comienzan en la direccion 1.
   logic [LFSR_WIDTH-1:0] rom_idx_dificil [0:N_PALABRAS_DIFICIL-1];
 
   always_comb begin
     for (int i = 0; i < N_PALABRAS_DIFICIL; i++) begin
-      rom_idx_dificil[i] = (N_PALABRAS - N_PALABRAS_DIFICIL + 1 + i);
+      rom_idx_dificil[i] = i + 1;
     end
   end
 

@@ -18,8 +18,8 @@ flowchart LR
     ANDP --> PULSO["pulso_carga"]
 
     REG_LFSR -->|"[5:0]"| CMPF{"CMP ≤ 50<br/>índice fácil válido"}
-    REG_LFSR -->|"[4:0]"| ROMD["ROM_IDX_DIFICIL<br/>20 entradas"]
-    ROMD --> CMPD{"CMP < 20<br/>índice difícil válido"}
+    REG_LFSR -->|"[4:0]"| ROMD["ROM_IDX_DIFICIL<br/>32 entradas"]
+    ROMD --> CMPD{"CMP < 32<br/>índice difícil válido"}
 
     IN_MODO(["modo (de M13_FSM)"]) --> MUXV{{"MUX 2:1<br/>válido / dirección"}}
     CMPF --> MUXV
@@ -63,8 +63,8 @@ M13_FSM pase a JUEGO.
   módulo decodifica la entrada a ese estado igual que hacen M02, M06, M11 y M12 con sus propios
   eventos de interés.
 - `modo`: FACIL o DIFICIL, desde M13_FSM. Acota el rango de palabras válidas.
-- `bank_word[78:0]`: palabra leída de `REG_WBank` en la dirección que M08 acaba de pedir,
-  formato `{longitud[3:0], letra15[4:0], ..., letra1[4:0]}` (ver h). Combinacional respecto a
+- `bank_word[63:0]`: palabra leída de `REG_WBank` en la dirección que M08 acaba de pedir,
+  formato `{longitud[3:0], letra12[4:0], ..., letra1[4:0]}` (ver h). Combinacional respecto a
   `bank_addr`, no hay reloj de por medio en la ROM.
 
 ## e) Salidas
@@ -72,7 +72,7 @@ M13_FSM pase a JUEGO.
 - `bank_addr[5:0]`: dirección hacia `REG_WBank`, valores `1`–`50`. No está en la lista original
   de `nivel03.md` (ver nota en b), pero es imprescindible para que el módulo tenga con qué
   direccionar la ROM.
-- `word[78:0]`: palabra escogida, mismo formato que `bank_word`, hacia `REG_Palabra-escogida`.
+- `word[63:0]`: palabra escogida, mismo formato que `bank_word`, hacia `REG_Palabra-escogida`.
 - `valid_word`: bandera de palabra lista, hacia M13_FSM.
 
 ## f) Explicación de la relación con otros módulos
@@ -112,14 +112,15 @@ si el valor **actual** del LFSR cae dentro del rango válido para el `modo` vige
 - En FACIL, cualquier valor de `REG_LFSR` entre 1 y 50 es una dirección válida directa hacia el
   banco de 50 palabras.
 - En DIFICIL, se toman los 5 bits menos significativos de `REG_LFSR` como índice (0 a 31) hacia
-  `ROM_IDX_DIFICIL`, una tabla de solo 20 entradas con las direcciones (1 a 50) de las palabras de
-  6 letras o más dentro del mismo banco de 50; un índice de 20 a 31 no tiene entrada y se descarta
-  como no válido.
+  `ROM_IDX_DIFICIL`, que traduce cada índice a la dirección `índice+1`: las 32 palabras de 6
+  letras o más viven exactamente en las direcciones 1 a 32 de `banco_palabras.sv` (ver h), así que
+  el índice completo (0-31) siempre cae en una dirección válida, sin descartes.
 
 Como el LFSR sigue corriendo libre durante toda esta espera, un valor no válido en un ciclo no
 detiene nada: simplemente el módulo vuelve a mirar en el ciclo siguiente, con un valor distinto.
 En la práctica esto tarda como mucho un puñado de ciclos de reloj (en FACIL, 50 de 63 valores son
-válidos; en DIFICIL, 20 de 32), muchísimo más rápido que cualquier cosa perceptible por el
+válidos; en DIFICIL, los 32 valores de índice son válidos, así que resuelve siempre en el primer
+ciclo), muchísimo más rápido que cualquier cosa perceptible por el
 jugador. Esto es, de hecho, la razón de que CARGA exista como estado propio en vez de resolverse
 en el mismo ciclo en que se confirma `ok`: la FSM ya está diseñada (ver M13_FSM, g) para
 quedarse esperando en CARGA sin hacer nada más hasta que `valid_word` se levante.
@@ -140,10 +141,10 @@ otro, sin relación con la palabra anterior.
 | Parámetro | Valor por defecto | Justificación |
 |---|---|---|
 | `N_PALABRAS` | 50 | Mínimo que exige el enunciado (nivel01, "banco de al menos 50 palabras"). |
-| `N_PALABRAS_DIFICIL` | 20 | Subconjunto de palabras de 6+ letras, por definir en equipo al armar la ROM. |
+| `N_PALABRAS_DIFICIL` | 32 | Subconjunto de palabras de 6+ letras que arma `banco_palabras.sv`, direcciones 1-32. |
 | `LFSR_WIDTH` | 6 bits | `$clog2(N_PALABRAS+1) = 6`, cubre direcciones 1–50 con margen (hasta 63) sin necesitar un ancho mayor. |
 | `IDX_DIFICIL_WIDTH` | 5 bits | `$clog2(32)`, ancho natural de los 5 bits menos significativos de `REG_LFSR` que se reutilizan como índice hacia `ROM_IDX_DIFICIL`. |
-| `WORD_MAXLEN` | 15 | Igual límite que usa M04/M11, columnas del PmodCLP. |
+| `WORD_MAXLEN` | 12 | Longitud máxima de palabra que fija el enunciado (3.1), igual valor que usan M04/M11. |
 | `LETRA_WIDTH` | 5 bits | Alcanza para 26 códigos (A-Z). |
 
 `bank_addr` y `word`/`bank_word` van con `parameter`/`localparam` calculados a partir de estos
@@ -195,12 +196,14 @@ FSM durante el primer ciclo de la CARGA nueva. La condición de captura real es 
 | `modo` | Condición de validez | `bank_addr` si válido |
 |---|---|---|
 | FACIL (`0`) | `REG_LFSR <= N_PALABRAS` (`<= 50`) | `REG_LFSR[5:0]` |
-| DIFICIL (`1`) | `REG_LFSR[4:0] < N_PALABRAS_DIFICIL` (`< 20`) | `ROM_IDX_DIFICIL[REG_LFSR[4:0]]` |
+| DIFICIL (`1`) | `REG_LFSR[4:0] < N_PALABRAS_DIFICIL` (`< 32`, siempre cierto) | `ROM_IDX_DIFICIL[REG_LFSR[4:0]]` |
 
-`ROM_IDX_DIFICIL` es una ROM combinacional de 20 entradas de 6 bits cada una, con las direcciones
-(dentro del mismo banco de 50) de las palabras de 6 letras o más; su contenido concreto depende
-de qué 20 y tantas palabras del banco cumplan esa condición, pendiente de fijar en equipo junto
-con el resto del contenido de `REG_WBank`.
+`ROM_IDX_DIFICIL` es una ROM combinacional de 32 entradas de 6 bits cada una, mapeo directo
+`índice+1`: `banco_palabras.sv` coloca las 32 palabras de 6 letras o más exactamente en las
+direcciones 1 a 32 del banco, así que no hace falta una tabla arbitraria, alcanza con sumarle 1
+al índice. Como `N_PALABRAS_DIFICIL` (32) satura el rango completo de `IDX_DIFICIL_WIDTH` (5
+bits, 0-31), la condición de validez siempre se cumple: a diferencia de FACIL, en DIFICIL no hay
+valores de `REG_LFSR` que se descarten.
 
 ### REG_CARGADO y REG_WORD_SEL (captura)
 
@@ -240,7 +243,7 @@ flowchart LR
 
     LOUT --> CMPF{"CMP ≤ 50"}
     LOUT -->|"[4:0]"| ROMD["ROM_IDX_DIFICIL"]
-    ROMD --> CMPD{"CMP < 20"}
+    ROMD --> CMPD{"CMP < 32"}
 
     MODOIN(["modo"]) --> MUXVAL{{"MUX 2:1<br/>válido"}}
     CMPF --> MUXVAL
