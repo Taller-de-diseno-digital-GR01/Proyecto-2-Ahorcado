@@ -1,6 +1,26 @@
 # ARBITRO_UART
 
-## Propósito
+## a) Nombre del módulo
+
+ARBITRO_UART
+
+## b) Diagrama modular
+
+```mermaid
+flowchart LR
+    IN_RX(["i_rx_addr, i_rx_we, i_rx_wdata (de M10)"]) --> PRIO{"PRIORIDAD<br/>receptor primero"}
+    IN_TX(["i_tx_addr, i_tx_we, i_tx_wdata (de M11)"]) --> PRIO
+    PRIO --> MUX_BUS{{"MUX de petición"}}
+    IN_RD(["i_rdata (de PERIFERICO_UART)"]) --> RECOMP["RECOMP_CTRL<br/>rescata send y new_rx"]
+    MUX_BUS --> RECOMP
+    RECOMP --> OUT_BUS(["o_addr, o_we, o_wdata (a PERIFERICO_UART)"])
+    IN_RD --> GATE["COMPUERTAS de lectura<br/>ceros al que no tiene el bus"]
+    PRIO --> GATE
+    GATE --> OUT_RXD(["o_rx_rdata (a M10)"])
+    GATE --> OUT_TXD(["o_tx_rdata, o_tx_bus_libre (a M11)"])
+```
+
+## c) Objetivo del módulo
 
 Multiplexa el bus de 32 bits entre los dos maestros que quieren hablarle a `PERIFERICO_UART`,
 `M10_Receptor-UART` y `M11_Transmisor-UART`. El periférico tiene un solo puerto y el enunciado
@@ -12,21 +32,22 @@ registro de control para que un maestro no le borre el bit al otro.
 
 ---
 
-## Entradas
+## d) Entradas
 
-- `i_rx_addr[1:0]`, `i_rx_we`, `i_rx_wdata[31:0]`: petición de `M10_Receptor-UART`.
-- `i_tx_addr[1:0]`, `i_tx_we`, `i_tx_wdata[31:0]`: petición de `M11_Transmisor-UART`.
-- `i_rdata[31:0]`: lo que devuelve `PERIFERICO_UART` en la dirección que se le está poniendo.
+- `i_rx_addr[1:0]`, `i_rx_we`, `i_rx_wdata[WIDTH-1:0]`: petición de `M10_Receptor-UART`.
+- `i_tx_addr[1:0]`, `i_tx_we`, `i_tx_wdata[WIDTH-1:0]`: petición de `M11_Transmisor-UART`.
+- `i_rdata[WIDTH-1:0]`: lo que devuelve `PERIFERICO_UART` en la dirección que se le está poniendo.
 
-No tiene `clk` ni `rst`. Es combinacional puro, no guarda estado.
+No tiene `clk` ni `rst`. Es combinacional puro, no guarda estado. Está parametrizado con
+`WIDTH = 32`, el ancho del bus.
 
 ---
 
 ## e) Salidas
 
-- `o_addr[1:0]`, `o_we`, `o_wdata[31:0]`: petición ganadora, hacia `PERIFERICO_UART`.
-- `o_rx_rdata[31:0]`: lo que ve `M10_Receptor-UART` de vuelta.
-- `o_tx_rdata[31:0]`: lo que ve `M11_Transmisor-UART` de vuelta.
+- `o_addr[1:0]`, `o_we`, `o_wdata[WIDTH-1:0]`: petición ganadora, hacia `PERIFERICO_UART`.
+- `o_rx_rdata[WIDTH-1:0]`: lo que ve `M10_Receptor-UART` de vuelta.
+- `o_tx_rdata[WIDTH-1:0]`: lo que ve `M11_Transmisor-UART` de vuelta.
 - `o_tx_bus_libre`: le avisa a `M11_Transmisor-UART` que este ciclo el bus es suyo.
 
 ---
@@ -40,9 +61,9 @@ lectura siempre es la de verdad. `M11_Transmisor-UART` sí lo sabe, y para eso t
 
 No le reporta nada a `M13_FSM` ni participa en la lógica del juego. Es infraestructura de bus.
 
-Este bloque no aparece en el diagrama de tercer nivel, que se dibujó cuando el UART todavía se
-pensaba como un solo maestro. Hay que agregarlo dentro de `CONTROL_JUEGO`, entre M10/M11 y
-`PERIFERICO_UART`.
+En el diagrama de tercer nivel va dentro de `CONTROL_JUEGO`, entre M10/M11 y `PERIFERICO_UART`.
+La primera versión de ese diagrama no lo tenía porque se dibujó cuando el UART todavía se pensaba
+como un solo maestro.
 
 ---
 
@@ -164,6 +185,7 @@ flowchart LR
     MUX_BUS --> OUT_WE(["o_we"])
 
     CMP_RX --> GATE_RX["AND<br/>rdata al receptor"]
+    CMP_TX --> GATE_RX
     RD --> GATE_RX
     GATE_RX --> OUT_RXD(["o_rx_rdata"])
 
@@ -180,7 +202,7 @@ flowchart LR
 
 No tiene puertos físicos, ni reloj, ni reset. Vive entero dentro de `CONTROL_JUEGO`.
 
-Conexiones del instanciado:
+Conexiones en `src/design/top.sv`, instancia `u_arbitro_uart`:
 
 - `i_rx_addr`, `i_rx_we`, `i_rx_wdata`, desde `M10_Receptor-UART`.
 - `o_rx_rdata`, hacia `M10_Receptor-UART`.
