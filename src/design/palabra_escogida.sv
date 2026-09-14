@@ -1,5 +1,5 @@
 module palabra_escogida #(
-  parameter int WORD_MAXLEN = 15,
+  parameter int WORD_MAXLEN = 12,
   parameter int LETRA_WIDTH = 5
 ) (
   // Palabra ya seleccionada por el LFSR:

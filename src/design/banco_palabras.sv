@@ -1,7 +1,7 @@
 // TODO: Hacer la documentación de esto
 module banco_palabras #(
   parameter int N_PALABRAS  = 50,
-  parameter int WORD_MAXLEN = 15, // columnas del lcd
+  parameter int WORD_MAXLEN = 12, // columnas del lcd
   parameter int LETRA_WIDTH = 5   // A-Z como código 0-25
 ) (
   // direcciones 1 a N_PALABRAS, igual que REG_LFSR
