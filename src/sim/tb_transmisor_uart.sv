@@ -15,8 +15,7 @@ module tb_transmisor_uart;
   localparam logic [2:0] CARGA = 3'b001;
   localparam logic [2:0] JUEGO = 3'b010;
   localparam logic [2:0] GANO = 3'b011;
-  localparam logic [2:0] PERDIO_INTENTOS = 3'b100;
-  localparam logic [2:0] PERDIO_TIEMPO = 3'b101;
+  localparam logic [2:0] PERDIO = 3'b100;
 
   localparam logic [1:0] FALLO = 2'b00;
   localparam logic [1:0] ACIERTO = 2'b01;
@@ -221,10 +220,52 @@ module tb_transmisor_uart;
     arrancar_trama();
     i_state_tb = JUEGO;
     esperar_trama(3);
+    // la fsm llega a PERDIO por intentos o por tiempo, y la causa sale de la cuenta de intentos
     arrancar_trama();
-    i_state_tb = PERDIO_TIEMPO;
+    i_intentos_tb = 3'd6;
+    i_state_tb = PERDIO;
     esperar_trama(2);
-    chequear_byte("perder por tiempo manda su propia causa", 1, 8'h05);
+    chequear_largo("perder tambien manda dos bytes", 2);
+    chequear_byte("con seis intentos la causa son los intentos", 1, 8'h04);
+
+    i_state_tb = SELECCION;
+    i_intentos_tb = 3'd0;
+    repeat (10) ciclo();
+
+    arrancar_trama();
+    i_state_tb = JUEGO;
+    esperar_trama(3);
+    arrancar_trama();
+    i_intentos_tb = 3'd5;
+    i_state_tb = PERDIO;
+    esperar_trama(2);
+    chequear_byte("con cinco intentos se perdio por tiempo, aunque quedara uno", 1, 8'h05);
+
+    i_state_tb = SELECCION;
+    i_intentos_tb = 3'd0;
+    repeat (10) ciclo();
+
+    arrancar_trama();
+    i_state_tb = JUEGO;
+    esperar_trama(3);
+    arrancar_trama();
+    i_state_tb = PERDIO;
+    esperar_trama(2);
+    chequear_byte("sin ningun fallo tambien sale tiempo", 1, 8'h05);
+
+    // la cuenta que importa es la de la entrada, si despues cambia la trama ya salio con la buena
+    i_state_tb = SELECCION;
+    repeat (10) ciclo();
+    arrancar_trama();
+    i_state_tb = JUEGO;
+    esperar_trama(3);
+    arrancar_trama();
+    i_intentos_tb = 3'd6;
+    i_state_tb = PERDIO;
+    ciclo();
+    i_intentos_tb = 3'd0;
+    esperar_trama(2);
+    chequear_byte("la causa se congela al entrar a PERDIO", 1, 8'h04);
 
     // un evento que cae mientras todavia se manda la trama anterior no se puede perder
     i_state_tb = SELECCION;

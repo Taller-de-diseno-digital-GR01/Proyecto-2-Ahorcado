@@ -34,15 +34,18 @@ Ensamblar y transmitir hacia la PC, por UART, las tramas de estado del juego que
 actualizado y los intentos, y resultado final con su causa.
 
 Decide solo cuándo transmitir. Al ver que `i_state` entró a JUEGO manda la trama de inicio, con
-cada letra evaluada manda la trama de letra, y al entrar a GANO, PERDIO_INTENTOS o PERDIO_TIEMPO
-manda la de fin. Como los tres estados de fin son distintos, la causa sale directo del `i_state`
-y no hace falta una señal aparte.
+cada letra evaluada manda la trama de letra, y al entrar a GANO o PERDIO manda la de fin.
+
+La FSM llega a PERDIO tanto por intentos como por tiempo, así que `i_state` solo no alcanza para
+la causa. El módulo la saca de `i_intentos` al entrar. Si la cuenta llegó a 6 se perdió por
+intentos, y con cualquier otro valor fue el tiempo. Eso es confiable porque `M12_Contador-Intentos`
+solo se limpia en CARGA, así que durante PERDIO la cuenta sigue intacta, y coincide con la
+prioridad de la FSM, que ante intentos agotados y tiempo en cero en el mismo ciclo escoge intentos.
 
 ## d) Entradas
 
 - `clk`, `rst`.
-- `i_state[2:0]`: estado actual, desde `M13_FSM`, decide cuál trama toca enviar y de dónde sale
-  la causa del fin de partida.
+- `i_state[2:0]`: estado actual, desde `M13_FSM`, decide cuál trama toca enviar.
 - `i_modo`: modo de la partida, desde `M13_FSM`, viaja en la trama de inicio.
 - `i_letra_state[1:0]`: resultado de la última letra, desde `M07_Comparador-letra`. La
   codificación es `00` fallo, `01` acierto, `10` repetida, y el `11` no se usa.
@@ -50,7 +53,7 @@ y no hace falta una señal aparte.
   `M07_Comparador-letra`. Es el que dispara la trama, no el valor de `i_letra_state`, porque dos
   letras seguidas con el mismo resultado no cambian ese bus y sin estrobo la segunda se perdería.
 - `i_intentos[2:0]`: fallos acumulados de la partida, desde `M12_Contador-Intentos`. Llega a 6,
-  así que 3 bits alcanzan.
+  así que 3 bits alcanzan. Viaja en la trama de letra y además decide la causa de una derrota.
 - `i_word_length[3:0]`: longitud de la palabra escogida, desde `REG_Palabra-escogida`.
 - `i_mascara[WORD_MAXLEN-1:0]`: posiciones ya reveladas, desde `M07_Comparador-letra`. Es el
   patrón que el enunciado pide mandar junto con el resultado de la letra.
@@ -116,7 +119,10 @@ Protocolo binario, un byte de cabecera que identifica el tipo y detrás el conte
 |---|---|---|---|---|---|---|---|
 | INICIO | entrada a JUEGO | `"I"` (`0x49`) | `{7'b0, modo}` | `{4'b0, word_length}` | | | 3 |
 | LETRA | `i_letra_lista` | `"L"` (`0x4C`) | `{6'b0, letra_state}` | `{5'b0, intentos}` | `mascara[7:0]` | `mascara[15:8]` | 5 |
-| FIN | entrada a un estado de fin | `"F"` (`0x46`) | `{5'b0, state}` | | | | 2 |
+| FIN | entrada a GANO o PERDIO | `"F"` (`0x46`) | `{5'b0, causa}` | | | | 2 |
+
+La causa usa los códigos que la app de PC ya conoce, `011` ganó, `100` perdió por intentos y `101`
+perdió por tiempo. El `101` ya no existe como estado de la FSM, solo sobrevive dentro de la trama.
 
 Las cabeceras son caracteres ASCII imprimibles solo para que la trama cruda se pueda leer con un
 monitor serial durante la depuración. La app de PC las trata como bytes, no como texto.
@@ -157,7 +163,7 @@ de un ciclo con un registro de retardo:
 
 ```
 dec_juego  = (i_state == JUEGO)
-dec_fin    = (i_state == GANO) | (i_state == PERDIO_INTENTOS) | (i_state == PERDIO_TIEMPO)
+dec_fin    = (i_state == GANO) | (i_state == PERDIO)
 pulso_ini  = dec_juego AND (NOT dec_juego_prev)
 pulso_fin  = dec_fin   AND (NOT dec_fin_prev)
 ```
@@ -171,7 +177,7 @@ hasta que la FSM la atienda:
 |---|---|---|---|
 | `pend_ini` | `pulso_ini` | ninguno, `i_modo` e `i_word_length` se leen al cargar | la FSM la consume |
 | `pend_letra` | `i_letra_lista` | `i_letra_state`, `i_intentos`, `i_mascara` | la FSM la consume |
-| `pend_fin` | `pulso_fin` | `i_state`, que es la causa | la FSM la consume |
+| `pend_fin` | `pulso_fin` | la causa, `GANO` si ganó y si no `100` o `101` según `i_intentos` | la FSM la consume |
 
 Consumir está atado a la transición y no solo al estado. Una bandera se limpia únicamente en el
 ciclo en que la FSM de verdad arranca la trama, o sea estando en IDLE, con pendiente, y con el
@@ -247,7 +253,7 @@ que ninguna combinación queda sin cubrir. `make synth SYNTH_TOP=transmisor_uart
 ```mermaid
 flowchart LR
     STATEIN(["i_state"]) --> DECJ["comparador<br/>dec_juego"]
-    STATEIN --> DECF["comparador<br/>dec_fin (OR de 3 igualdades)"]
+    STATEIN --> DECF["comparador<br/>dec_fin (OR de 2 igualdades)"]
     DECJ --> DJP["D-FF<br/>dec_juego_prev"]
     DECF --> DFP["D-FF<br/>dec_fin_prev"]
     CLK(["clk"]) --> DJP

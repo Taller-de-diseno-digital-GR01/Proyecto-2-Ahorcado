@@ -16,11 +16,16 @@ module transmisor_uart #(parameter WIDTH = 32, parameter WORD_MAXLEN = 12) (
   output logic [WIDTH-1:0] o_wdata
   );
 
-  // Códigos de estado de la FSM principal (docs/diseño/modulos/M13_FSM.md, h)
+  // Códigos de estado de la FSM principal, la fsm junta las dos derrotas en PERDIO
   localparam JUEGO = 3'b010;
   localparam GANO = 3'b011;
-  localparam PERDIO_INTENTOS = 3'b100;
-  localparam PERDIO_TIEMPO = 3'b101;
+  localparam PERDIO = 3'b100;
+
+  // Causas que viajan en la trama de fin, la app de pc ya las lee así
+  localparam CAUSA_INTENTOS = 3'b100;
+  localparam CAUSA_TIEMPO = 3'b101;
+
+  localparam MAX_INTENTOS = 6;
 
   // El enunciado fija el registro de datos de transmision en addr_i=2'b00, la del control la elige el equipo
   localparam ADDR_UART_CTRL = 2'b10;
@@ -41,7 +46,7 @@ module transmisor_uart #(parameter WIDTH = 32, parameter WORD_MAXLEN = 12) (
   logic dec_fin, dec_fin_prev, pulso_fin;
 
   assign dec_juego = (i_state == JUEGO);
-  assign dec_fin = (i_state == GANO) || (i_state == PERDIO_INTENTOS) || (i_state == PERDIO_TIEMPO);
+  assign dec_fin = (i_state == GANO) || (i_state == PERDIO);
 
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -106,7 +111,12 @@ module transmisor_uart #(parameter WIDTH = 32, parameter WORD_MAXLEN = 12) (
       pend_intentos_val <= i_intentos;
       pend_mascara_val <= i_mascara;
     end
-    if (pulso_fin) pend_fin_causa <= i_state;
+    // PERDIO ya no dice por qué se perdió, pero contador_intentos solo se limpia en CARGA y todavía tiene la cuenta al entrar
+    if (pulso_fin) begin
+      if (i_state == GANO) pend_fin_causa <= GANO;
+      else if (i_intentos >= MAX_INTENTOS) pend_fin_causa <= CAUSA_INTENTOS;
+      else pend_fin_causa <= CAUSA_TIEMPO;
+    end
   end
 
   // 3. Máquina de estados: IDLE decide cuál pendiente atender (prioridad fin > letra > inicio),
