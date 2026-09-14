@@ -54,19 +54,21 @@ prioridad de la FSM, que ante intentos agotados y tiempo en cero en el mismo cic
   letras seguidas con el mismo resultado no cambian ese bus y sin estrobo la segunda se perdería.
 - `i_intentos[2:0]`: fallos acumulados de la partida, desde `M12_Contador-Intentos`. Llega a 6,
   así que 3 bits alcanzan. Viaja en la trama de letra y además decide la causa de una derrota.
-- `i_word_length[3:0]`: longitud de la palabra escogida, desde `REG_Palabra-escogida`.
+- `i_word_length[3:0]`: longitud de la palabra escogida, desde `REG_Palabra-escogida`, que en el
+  top es `word[63:60]` de `M08_LFSR`.
 - `i_mascara[WORD_MAXLEN-1:0]`: posiciones ya reveladas, desde `M07_Comparador-letra`. Es el
   patrón que el enunciado pide mandar junto con el resultado de la letra.
-- `i_rdata[31:0]`: lectura de vuelta del bus, de ahí sondea el bit `send` para saber si el
+- `i_rdata[WIDTH-1:0]`: lectura de vuelta del bus, de ahí sondea el bit `send` para saber si el
   periférico sigue ocupado. Llega pasando por `ARBITRO_UART`.
 - `i_bus_libre`: desde `ARBITRO_UART`, dice si este ciclo el bus es suyo.
 
-El módulo está parametrizado con `WORD_MAXLEN = 12`, el mismo valor que usan
-`M07_Comparador-letra` y el banco de palabras.
+El módulo está parametrizado con `WIDTH = 32`, el ancho del bus, y con `WORD_MAXLEN = 12`, el
+mismo valor que usan `M07_Comparador-letra` y el banco de palabras. El byte serial es
+`BYTE_WIDTH = 8` fijo, porque los núcleos del curso siempre mueven 8 bits.
 
 ## e) Salidas
 
-- `o_write_enable`, `o_addr[1:0]`, `o_wdata[31:0]`: petición hacia el bus, que entra por la cara
+- `o_write_enable`, `o_addr[1:0]`, `o_wdata[WIDTH-1:0]`: petición hacia el bus, que entra por la cara
   del transmisor de `ARBITRO_UART`.
 
 Todo lo que el módulo tiene que decir viaja empaquetado dentro de `o_wdata`, un byte a la vez.
@@ -312,16 +314,17 @@ así que después de un reset el módulo queda mudo hasta el siguiente evento.
 Este módulo no tiene puertos físicos propios. La línea TX de la tarjeta sale del núcleo que vive
 dentro de `PERIFERICO_UART`, así que la restricción de pin pertenece a ese periférico.
 
-Conexiones del instanciado dentro de `CONTROL_JUEGO`:
+Conexiones en `src/design/top.sv`, instancia `u_transmisor_uart`:
 
-- `clk`, al reloj global de 100 MHz.
-- `rst`, a BTN_RST ya sincronizado.
+- `clk`, al reloj global de 100 MHz, pin W5.
+- `rst`, a la entrada `rst` del top, el botón central en el pin U18.
 - `i_state`, `i_modo`, desde `M13_FSM`.
 - `i_letra_state`, `i_letra_lista`, `i_mascara`, desde `M07_Comparador-letra`.
-- `i_intentos`, desde `M12_Contador-Intentos`.
-- `i_word_length`, desde `REG_Palabra-escogida`.
-- `i_rdata`, `i_bus_libre`, desde la cara del transmisor de `ARBITRO_UART`.
-- `o_addr`, `o_write_enable`, `o_wdata`, hacia la cara del transmisor de `ARBITRO_UART`.
+- `i_intentos`, desde `o_intentos` de `M12_Contador-Intentos`.
+- `i_word_length`, desde `word[63:60]`, la palabra que entrega `M08_LFSR`.
+- `i_rdata`, `i_bus_libre`, desde `o_tx_rdata` y `o_tx_bus_libre` de `ARBITRO_UART`.
+- `o_addr`, `o_write_enable`, `o_wdata`, hacia `i_tx_addr`, `i_tx_we` e `i_tx_wdata` de
+  `ARBITRO_UART`.
 
 Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño
 que se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.

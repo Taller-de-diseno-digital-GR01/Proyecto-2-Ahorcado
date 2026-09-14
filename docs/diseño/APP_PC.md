@@ -52,6 +52,10 @@ completa sirva igual con 4 letras que con 12, así que la app solo mira los prim
 bits. Y el mensaje de letra no dice cuál letra era, así que la app aparea las respuestas en orden con
 una cola FIFO de las letras que mandó.
 
+El bit 0 de la máscara es la primera letra de la palabra, porque `comparador_letra.sv` recibe la
+palabra con la letra 1 en los bits bajos. La app recorre la máscara desde el bit 0 y pinta el patrón
+de izquierda a derecha en ese mismo orden.
+
 ## El ciclo principal
 
 Un solo hilo con `select` sobre dos descriptores, la entrada estándar y el puerto serial. Sin

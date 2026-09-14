@@ -1,6 +1,23 @@
 # PERIFERICO_UART
 
-## Propósito
+## a) Nombre del módulo
+
+PERIFERICO_UART
+
+## b) Diagrama modular
+
+```mermaid
+flowchart LR
+    IN_BUS(["write_enable_i, addr_i, wdata_i (de ARBITRO_UART)"]) --> REGS["REG_DATOS_TX / REG_DATOS_RX / REG_CTRL<br/>send(0,WC) new_rx(1,RW)"]
+    REGS --> NUC_TX["uart_tx<br/>115200 baud"]
+    NUC_TX -->|o_listo| REGS
+    IN_RX(["rx_i (pin B18)"]) --> NUC_RX["uart_rx<br/>115200 baud"]
+    NUC_RX -->|"o_dato, o_dato_listo"| REGS
+    NUC_TX --> OUT_TX(["tx_o (pin A18)"])
+    REGS --> OUT_RD(["rdata_o (a ARBITRO_UART)"])
+```
+
+## c) Objetivo del módulo
 
 Envuelve los dos núcleos serie que da el curso (`UART_tx.vhd` y `UART_rx.vhd`, portados a
 SystemVerilog) en la interfaz estándar de periférico de 32 bits que fija la sección 3.4.3 del
@@ -12,22 +29,26 @@ direcciones y levanta banderas para que alguien más las lea.
 
 ---
 
-## Entradas
+## d) Entradas
 
 - `clk_i`, `rst_i`.
 - `write_enable_i`: habilitación de escritura del bus, desde `ARBITRO_UART`.
 - `addr_i[1:0]`: dirección del registro, desde `ARBITRO_UART`.
-- `wdata_i[31:0]`: dato a escribir, desde `ARBITRO_UART`.
+- `wdata_i[WIDTH-1:0]`: dato a escribir, desde `ARBITRO_UART`.
 - `rx_i`: línea serial cruda, desde el pin B18 de la Basys 3.
 
 Los puertos del bus llevan sufijo `_i`/`_o` en vez del prefijo `i_`/`o_` que usa el resto del
 repo, porque la sección 3.4.3 los nombra así y la interfaz es de cumplimiento obligatorio.
 
+El módulo está parametrizado con `WIDTH = 32`, `TICKS_BIT = 868` y `TICKS_X16 = 54`. Los dos
+últimos se le pasan tal cual a los núcleos, que tienen los mismos parámetros, y es sobre los
+núcleos donde `tb_uart_tx` los reescala a 160 y 10 para que la simulación no tarde una eternidad.
+
 ---
 
 ## e) Salidas
 
-- `rdata_o[31:0]`: contenido del registro apuntado por `addr_i`, hacia `ARBITRO_UART`.
+- `rdata_o[WIDTH-1:0]`: contenido del registro apuntado por `addr_i`, hacia `ARBITRO_UART`.
 - `tx_o`: línea serial hacia el pin A18 de la Basys 3.
 
 ---
@@ -217,15 +238,18 @@ restricciones de pin que poner en `src/fpga/basys3.xdc`:
 - `tx_o`, al pin **A18**, `RsTx` del puente USB-UART.
 - Los dos con `IOSTANDARD LVCMOS33`.
 
-Las dos líneas están comentadas en el `.xdc` que trae el repo, hay que descomentarlas y
-renombrar los puertos cuando se instancie el periférico en el top.
+Las dos líneas ya están activas en `src/fpga/basys3.xdc` con los mismos nombres de puerto que usa
+el top, así que `rx_i` y `tx_o` del periférico van directo a los puertos `rx_i` y `tx_o` de
+`top.sv`.
 
-Conexiones del instanciado dentro del top:
+Conexiones en `src/design/top.sv`, instancia `u_periferico_uart`:
 
-- `clk_i`, al reloj global de 100 MHz.
-- `rst_i`, a BTN_RST ya sincronizado.
-- `write_enable_i`, `addr_i[1:0]`, `wdata_i[31:0]`, desde `ARBITRO_UART`.
-- `rdata_o[31:0]`, hacia `ARBITRO_UART`.
+- `clk_i`, al reloj global de 100 MHz, pin W5.
+- `rst_i`, a la entrada `rst` del top, el botón central en el pin U18.
+- `write_enable_i`, `addr_i[1:0]`, `wdata_i[31:0]`, desde `o_we`, `o_addr` y `o_wdata` de
+  `ARBITRO_UART`.
+- `rdata_o[31:0]`, hacia `i_rdata` de `ARBITRO_UART`.
+- `rx_i`, `tx_o`, a los puertos del top con el mismo nombre.
 
 Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño
 que se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.

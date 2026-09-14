@@ -46,6 +46,7 @@ subgraph "FPGA"
         M10["M10_Receptor-UART"]
         M11["M11_Transmisor-UART"]
         M12["M12_Contador-Intentos"]
+        ARB["ARBITRO_UART"]
         REG_W[REG_Palabra-escogida]
         REG_LI[REG_Letra-in]
 
@@ -58,9 +59,11 @@ subgraph "FPGA"
         M07-->|"letra_state, letra_lista, mascara"|M11
         M07-->|palabra_completa|FSM
         M07-->|mascara|M04
-        M12-->|try|M11
+        M12-->|intentos|M11
         M12-->|intentos_agotados|FSM
         REG_W-->|word_length|M11
+        M10<-->|"bus 32b"|ARB
+        M11<-->|"bus 32b"|ARB
         FSM-->|state|REG_LI
         FSM-->|state|M07
         FSM-->|state|M10
@@ -90,7 +93,7 @@ subgraph "FPGA"
         M06-->|num_ganadas|M01
     end
 
-    CONTROL_JUEGO <-->|"bus 32b"| PERIFERICO_UART
+    ARB <-->|"bus 32b"| PERIFERICO_UART
     CONTROL_JUEGO <-->|"bus 32b"| PERIFERICO_LCD
 
     FSM-->|state|M02
@@ -114,7 +117,6 @@ M01-->|num_win|7SEG2["7SEG GANADAS"]
 M02-->|sound|BUZZER["BUZZER"]
 M05-->|state|LED_S["LED ESTADO"]
 M04-->|word/Modo|PERIFERICO_LCD
-M11-->|modo/letra_state/Resultado/w_word/Intentos|PERIFERICO_UART
 ```
 
 ### Leyenda de los diagramas modulares
@@ -349,57 +351,65 @@ que es lo que hace que BTN_RST reinicie el marcador acumulado como pide el enunc
 
 ```mermaid
 flowchart LR
-    IN_LETRA(["letra_in (de REG_LI)"]) --> XOR1["XOR<br/>comparación bit a bit"]
-    IN_W(["word (de REG_W)"]) --> XOR1
-    XOR1 --> OR1["OR<br/>reducción"]
-    OR1 --> REG_ST["REG_LETRA_STATE<br/>registro"]
-    OR1 --> REG_MASC["REG_MASCARA<br/>posiciones reveladas"]
-    IN_STATE(["state (de M13_FSM)"]) --> REG_MASC
-    IN_STATE --> REG_USADAS["REG_USADAS<br/>letras ya recibidas"]
-    IN_LETRA --> REG_USADAS
-    REG_USADAS --> CMP_REP{"CMP<br/>letra repetida"}
-    CMP_REP --> REG_ST
+    IN_LETRA(["i_letra, i_letra_nueva (de M10, hace de REG_Letra-in)"]) --> CONV["RESTA<br/>ASCII a código 0-25"]
+    CONV --> CMP_POS["CMP_POSICIONES<br/>un comparador por posición"]
+    IN_W(["i_word, i_word_length (de REG_Palabra-escogida)"]) --> CMP_POS
+    CONV --> REG_USADAS["REG_USADAS<br/>letras ya recibidas"]
+    IN_STATE(["i_state (de M13_FSM)"]) --> REG_USADAS
+    IN_STATE --> REG_MASC["REG_MASCARA<br/>posiciones reveladas"]
+    CMP_POS --> EVAL["EVALUACION<br/>acierto / fallo / repetida"]
+    REG_USADAS --> EVAL
+    CMP_POS --> REG_MASC
+    EVAL --> REG_ST["REG_LETRA_STATE<br/>registro"]
+    REG_ST --> OUT_ST(["o_letra_state, o_letra_lista (a M02 y M11)"])
+    EVAL --> OUT_TRY(["o_try (a M12)"])
+    REG_MASC --> OUT_MASC(["o_mascara (a M04 y M11)"])
     REG_MASC --> CMP_FIN{"CMP<br/>todas reveladas"}
-    IN_W --> CMP_FIN
-    CMP_FIN --> OUT_COMP(["palabra_completa (a M13_FSM)"])
-    REG_ST --> OUT_M11(["letra_state (a M11)"])
-    REG_ST --> OUT_M02(["letra_state (a M02)"])
-    REG_ST --> CNT1["CONT_PULSO<br/>generador de pulso try"]
-    CNT1 --> OUT_TRY(["try (a M12)"])
+    CMP_FIN --> OUT_COMP(["o_palabra_completa (a M13_FSM)"])
 ```
 
 ### c) Objetivo del módulo
 
-Comparar la letra recibida (REG_Letra-in, `letra_in`) contra la palabra secreta
-(REG_Palabra-escogida, `word`) para determinar acierto, fallo o letra repetida, informando el
-resultado (`letra_state`) a M11_Transmisor-UART y a M02_Generador-Tono, y avisando a
-M12_Contador-Intentos (`try`) que se evaluó un intento que sí cuenta.
-
-Guarda además la máscara de posiciones ya reveladas y el registro de letras ya recibidas. La
-máscara es la que permite avisarle a M13_FSM que la palabra quedó completa, y el registro de
-usadas es el que hace que una letra repetida no gaste intento ni vuelva a sonar como fallo.
-Ambos se limpian al ver que `state` entró a CARGA, o sea al empezar cada partida nueva.
+Compara la letra recibida con la palabra escogida y determina el resultado del intento. Guarda
+además cuáles posiciones de la palabra ya se revelaron y cuáles letras ya se recibieron, que es lo
+que permite avisar cuando la palabra quedó completa y no penalizar una letra repetida.
 
 ### d) Entradas
 
 - `clk`, `rst`.
-- `letra_in`, letra recibida, desde REG_Letra-in.
-- `letra_nueva`, estrobo de un ciclo que avisa que `letra_in` acaba de cargarse, desde
-  REG_Letra-in. Sin él el módulo reevaluaría la misma letra en cada ciclo de reloj.
-- `word`, palabra secreta, desde REG_Palabra-escogida.
-- `word_length`, cuántas posiciones de `word` son válidas, desde REG_Palabra-escogida.
-- `state`, estado actual, desde M13_FSM, limpia máscara y letras usadas al entrar a CARGA.
+- `i_letra[7:0]`, letra recibida en ASCII tal como sale de `M10_Receptor-UART`, que en el top hace
+  también de `REG_Letra-in`.
+- `i_letra_nueva`, pulso de un ciclo que avisa que `i_letra` acaba de cargarse, desde el mismo
+  registro.
+- `i_word[WORD_MAXLEN*LETRA_WIDTH-1:0]`, palabra de la partida, desde `REG_Palabra-escogida`. Cada
+  letra ocupa `LETRA_WIDTH` bits con su código de 0 a 25, y la primera letra va en los bits bajos.
+- `i_word_length[$clog2(WORD_MAXLEN+1)-1:0]`, cantidad de letras válidas de `i_word`, desde
+  `REG_Palabra-escogida`.
+- `i_state[2:0]`, estado actual, desde `M13_FSM`. De acá solo le interesa CARGA.
+
+El módulo está parametrizado con `WORD_MAXLEN = 12` y `LETRA_WIDTH = 5`, los mismos valores con los
+que `M08_LFSR` empaqueta la palabra y con los que `M11_Transmisor-UART` recibe la máscara.
 
 ### e) Salidas
 
-- `letra_state`, resultado de la comparación (acierto, fallo o repetida), hacia
-  M11_Transmisor-UART y M02_Generador-Tono.
-- `letra_lista`, estrobo que acompaña a `letra_state`, hacia M11_Transmisor-UART y
-  M02_Generador-Tono.
-- `mascara`, posiciones de la palabra ya reveladas, hacia M04_Mostrar-LCD y M11_Transmisor-UART.
-  Es el patrón que se pinta en el LCD y el que viaja en la trama hacia la PC.
-- `palabra_completa`, todas las posiciones reveladas, hacia M13_FSM.
-- `try`, pulso de intento fallido, hacia M12_Contador-Intentos.
+- `o_letra_state[1:0]`, resultado de la comparación, hacia `M02_Generador-Tono` y
+  `M11_Transmisor-UART`.
+- `o_letra_lista`, estrobo de un ciclo que acompaña a `o_letra_state`, hacia `M02_Generador-Tono`
+  y `M11_Transmisor-UART`.
+- `o_palabra_completa`, todas las posiciones de la palabra reveladas, hacia `M13_FSM`.
+- `o_mascara[WORD_MAXLEN-1:0]`, posiciones reveladas, hacia `M04_Mostrar-LCD` y
+  `M11_Transmisor-UART`. Es el patrón que se pinta en el LCD y el que viaja en la trama hacia la
+  PC. El bit 0 corresponde a la primera letra de la palabra.
+- `o_try`, pulso de intento fallido, hacia `M12_Contador-Intentos`.
+
+Codificación de `o_letra_state`:
+
+| `o_letra_state` | Significado |
+| --------------- | ----------- |
+| `00`            | FALLO, la letra no está en la palabra |
+| `01`            | ACIERTO, la letra reveló al menos una posición |
+| `10`            | REPETIDA, la letra ya se había recibido antes |
+| `11`            | sin uso |
 
 ## M08: LFSR
 
@@ -475,39 +485,51 @@ pulsos limpios `sel` y `ok` directamente a M13_FSM.
 
 ```mermaid
 flowchart LR
-    IN_BUS(["bus 32b (de PERIFERICO_UART)"]) --> REG_RX["REG_RX<br/>registro"]
-    REG_RX --> CMP1{"CMP A-Z<br/>comparador de rango"}
-    IN_STATE(["state (de M13_FSM)"]) --> CMP_JUEGO{"CMP = JUEGO<br/>hay partida activa"}
-    CMP1 --> AND1["AND<br/>letra válida y en partida"]
-    CMP_JUEGO --> AND1
+    IN_RD(["i_rdata (de ARBITRO_UART)"]) --> FSM_BUS["FSM_BUS<br/>ESPERA / LEE / LIMPIA"]
+    IN_RD --> CMP_RNG{"CMP A-Z<br/>comparador de rango"}
+    IN_STATE(["i_state (de M13_FSM)"]) --> CMP_JG{"CMP = JUEGO<br/>hay partida activa"}
+    FSM_BUS --> AND1["AND<br/>letra válida y en partida"]
+    CMP_RNG --> AND1
+    CMP_JG --> AND1
     AND1 --> REG_VALID["REG_VALID<br/>registro"]
-    REG_RX --> OUT_LETRA(["letra_in (a REG_LI)"])
-    REG_VALID --> OUT_VALIDW(["valid_w (a REG_LI)"])
+    IN_RD --> REG_LETRA["REG_LETRA<br/>registro"]
+    FSM_BUS --> REG_LETRA
+    REG_LETRA --> OUT_LETRA(["o_letra (a M07)"])
+    REG_VALID --> OUT_VW(["o_valid_w (a M07)"])
+    FSM_BUS --> OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
 ```
 
 ### c) Objetivo del módulo
 
-Recibir la letra enviada por la PC a través de UART, cargarla en REG_Letra-in (`letra_in`) y
-habilitar esa carga con `valid_w` solo si el byte es A-Z y además hay partida activa.
-
-Acá es donde se resuelve lo que el enunciado exige documentar, la letra que llega mientras el
-sistema está en selección de modo o mostrando resultado se descarta en este punto, no llega a
-REG_Letra-in ni a M07_Comparador-letra, así que no gasta intento ni toca el temporizador. Se
-filtra por `state` en vez de preguntarle a M13_FSM, que es lo mismo que hacen los demás módulos.
+Recibe los bytes que manda la aplicación del PC, se queda solo con los que son una letra A-Z
+durante una partida activa, y los entrega a `M07_Comparador-letra`. Es el punto donde se descarta
+todo lo que no debe llegar a la lógica del juego.
 
 ### d) Entradas
 
 - `clk`, `rst`.
-- Bus de 32 bits compartido con PERIFERICO_UART (lee `REG_DATOS_RX`).
-- `state`, estado actual, desde M13_FSM, solo deja pasar letras durante JUEGO.
+- `i_rdata[WIDTH-1:0]`, lo que devuelve `PERIFERICO_UART` en la dirección que este módulo le está
+  poniendo, de ahí saca el bit `new_rx` y el byte recibido. Llega pasando por `ARBITRO_UART`.
+- `i_state[2:0]`, estado actual, desde `M13_FSM`. De acá solo le interesa JUEGO.
 
-Nota: el diagrama de tercer nivel no dibuja una flecha individual de entrada hacia M10; el dato
-le llega a través del bus de 32 bits que todo CONTROL_JUEGO comparte con PERIFERICO_UART.
+El dato no le llega por una flecha propia en el diagrama de tercer nivel, entra por el bus de 32
+bits que comparte con `M11_Transmisor-UART` a través de `ARBITRO_UART`.
+
+El módulo está parametrizado con `WIDTH = 32`, el ancho del bus. El byte serial es
+`BYTE_WIDTH = 8` y va como `localparam` dentro de la lista de parámetros, porque los núcleos del
+curso siempre mueven 8 bits y no tiene sentido que dependa del ancho del bus.
 
 ### e) Salidas
 
-- `letra_in`, letra recibida, hacia REG_Letra-in.
-- `valid_w`, habilitación de carga de la letra, hacia REG_Letra-in.
+- `o_letra[BYTE_WIDTH-1:0]`, letra recibida en ASCII tal como salió del periférico, hacia
+  `M07_Comparador-letra`.
+- `o_valid_w`, pulso de un ciclo que habilita esa letra, hacia `M07_Comparador-letra`, donde entra
+  como `i_letra_nueva`.
+- `o_addr[1:0]`, `o_write_enable`, `o_wdata[WIDTH-1:0]`, petición hacia el bus, que entra por la
+  cara del receptor de `ARBITRO_UART`.
+
+`o_letra` y `o_valid_w` salen de registros, así que juntas cumplen el papel de `REG_Letra-in` del
+diagrama de tercer nivel y en el top no hace falta un registro aparte.
 
 ## M11: Transmisor-UART
 
@@ -515,46 +537,72 @@ le llega a través del bus de 32 bits que todo CONTROL_JUEGO comparte con PERIFE
 
 ```mermaid
 flowchart LR
-    IN_MODO(["modo (de M13_FSM)"]) --> REG_FRAME["REG_TRAMA<br/>registro"]
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>cuál trama toca enviar"]
-    DEC_ST --> REG_FRAME
-    IN_LST(["letra_state (de M07)"]) --> REG_FRAME
-    IN_LST --> DEC_ST
-    IN_TRY(["try (de M12)"]) --> REG_FRAME
-    IN_LEN(["word_length (de REG_W)"]) --> REG_FRAME
-    REG_FRAME --> MUX1{{"MUX<br/>selección de campo"}}
+    IN_STATE(["i_state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>cuál trama toca enviar"]
+    IN_MODO(["i_modo (de M13_FSM)"]) --> REG_FRAME["REG_TRAMA<br/>registro"]
+    DEC_ST --> PEND["BANDERAS_PENDIENTE<br/>ini / letra / fin"]
+    IN_LST(["i_letra_state, i_letra_lista (de M07)"]) --> PEND
+    IN_LST --> REG_FRAME
+    IN_MASK(["i_mascara (de M07)"]) --> REG_FRAME
+    IN_TRY(["i_intentos (de M12)"]) --> REG_FRAME
+    IN_LEN(["i_word_length (de REG_Palabra-escogida)"]) --> REG_FRAME
+    PEND --> FSM["FSM_BUS<br/>IDLE / LOAD_DATA / LOAD_CTRL / WAIT"]
+    IN_LIBRE(["i_bus_libre (de ARBITRO_UART)"]) --> FSM
+    IN_RD(["i_rdata (de ARBITRO_UART)"]) --> FSM
+    PEND --> REG_FRAME
+    REG_FRAME --> MUX1{{"MUX<br/>selección de byte"}}
     CNT_BYTE["CONT_BYTE<br/>contador"] --> MUX1
-    MUX1 --> OUT_UART(["modo/letra_state/Resultado/w_word/Intentos (a PERIFERICO_UART)"])
+    FSM --> CNT_BYTE
+    MUX1 --> OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
+    FSM --> OUT_BUS
 ```
 
 ### c) Objetivo del módulo
 
-Ensamblar y transmitir hacia la PC, por UART, la trama de estado del juego, con modo, estado de
-la última letra, resultado, longitud de la palabra e intentos usados
-(`modo/letra_state/Resultado/w_word/Intentos`).
+Ensamblar y transmitir hacia la PC, por UART, las tramas de estado del juego que exige la sección
+3.4.4 del enunciado, inicio de partida con modo y longitud, resultado de cada letra con el patrón
+actualizado y los intentos, y resultado final con su causa.
 
-Decide solo cuándo transmitir. Al ver que `state` entró a JUEGO manda la trama de inicio de
-partida con longitud y modo, con cada `letra_state` nuevo manda el resultado de la letra y los
-intentos restantes, y al entrar a GANO, PERDIO_INTENTOS o PERDIO_TIEMPO manda el resultado final.
-Como los tres estados de fin son distintos, la causa de la derrota sale directo del `state`, sin
-necesidad de una señal aparte.
+Decide solo cuándo transmitir. Al ver que `i_state` entró a JUEGO manda la trama de inicio, con
+cada letra evaluada manda la trama de letra, y al entrar a GANO o PERDIO manda la de fin.
+
+La FSM llega a PERDIO tanto por intentos como por tiempo, así que `i_state` solo no alcanza para
+la causa. El módulo la saca de `i_intentos` al entrar. Si la cuenta llegó a 6 se perdió por
+intentos, y con cualquier otro valor fue el tiempo. Eso es confiable porque `M12_Contador-Intentos`
+solo se limpia en CARGA, así que durante PERDIO la cuenta sigue intacta, y coincide con la
+prioridad de la FSM, que ante intentos agotados y tiempo en cero en el mismo ciclo escoge intentos.
 
 ### d) Entradas
 
 - `clk`, `rst`.
-- `state`, estado actual, desde M13_FSM, decide cuál trama toca enviar.
-- `modo`, desde M13_FSM.
-- `letra_state`, desde M07_Comparador-letra.
-- `letra_lista`, estrobo que marca cuándo `letra_state` es nuevo, desde M07_Comparador-letra.
-- `mascara`, patrón de la palabra revelada, desde M07_Comparador-letra, va en la trama hacia la PC.
-- `try`, fallos acumulados, desde M12_Contador-Intentos. El enunciado pide reportar los intentos
-  restantes, así que la resta `6 - try` se hace acá al componer la trama.
-- `word_length`, longitud de la palabra escogida, desde REG_Palabra-escogida.
+- `i_state[2:0]`: estado actual, desde `M13_FSM`, decide cuál trama toca enviar.
+- `i_modo`: modo de la partida, desde `M13_FSM`, viaja en la trama de inicio.
+- `i_letra_state[1:0]`: resultado de la última letra, desde `M07_Comparador-letra`. La
+  codificación es `00` fallo, `01` acierto, `10` repetida, y el `11` no se usa.
+- `i_letra_lista`: estrobo de un ciclo que acompaña a `i_letra_state`, desde
+  `M07_Comparador-letra`. Es el que dispara la trama, no el valor de `i_letra_state`, porque dos
+  letras seguidas con el mismo resultado no cambian ese bus y sin estrobo la segunda se perdería.
+- `i_intentos[2:0]`: fallos acumulados de la partida, desde `M12_Contador-Intentos`. Llega a 6,
+  así que 3 bits alcanzan. Viaja en la trama de letra y además decide la causa de una derrota.
+- `i_word_length[3:0]`: longitud de la palabra escogida, desde `REG_Palabra-escogida`, que en el
+  top es `word[63:60]` de `M08_LFSR`.
+- `i_mascara[WORD_MAXLEN-1:0]`: posiciones ya reveladas, desde `M07_Comparador-letra`. Es el
+  patrón que el enunciado pide mandar junto con el resultado de la letra.
+- `i_rdata[WIDTH-1:0]`: lectura de vuelta del bus, de ahí sondea el bit `send` para saber si el
+  periférico sigue ocupado. Llega pasando por `ARBITRO_UART`.
+- `i_bus_libre`: desde `ARBITRO_UART`, dice si este ciclo el bus es suyo.
+
+El módulo está parametrizado con `WIDTH = 32`, el ancho del bus, y con `WORD_MAXLEN = 12`, el
+mismo valor que usan `M07_Comparador-letra` y el banco de palabras. El byte serial es
+`BYTE_WIDTH = 8` fijo, porque los núcleos del curso siempre mueven 8 bits.
 
 ### e) Salidas
 
-- `modo/letra_state/Resultado/w_word/Intentos`, trama de estado del juego, hacia
-  PERIFERICO_UART.
+- `o_write_enable`, `o_addr[1:0]`, `o_wdata[WIDTH-1:0]`: petición hacia el bus, que entra por la cara
+  del transmisor de `ARBITRO_UART`.
+
+Todo lo que el módulo tiene que decir viaja empaquetado dentro de `o_wdata`, un byte a la vez.
+La etiqueta `modo/letra_state/Resultado/w_word/Intentos` del diagrama de nivel 3 describe ese
+contenido, no puertos separados.
 
 ## M12: Contador-Intentos
 
@@ -562,32 +610,32 @@ necesidad de una señal aparte.
 
 ```mermaid
 flowchart LR
-    IN_TRY(["try (de M07)"]) --> CNT1["CONT_INTENTOS<br/>contador ascendente"]
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>limpia al entrar a CARGA"]
+    IN_TRY(["i_try (de M07)"]) --> CNT1["CONT_INTENTOS<br/>contador saturado en 6"]
+    IN_STATE(["i_state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>limpia al entrar a CARGA"]
     DEC_ST --> CNT1
-    CNT1 --> REG_OUT["REG_SALIDA<br/>registro"]
-    REG_OUT --> CMP1{"CMP = 6<br/>intentos agotados"}
-    CMP1 --> OUT_FSM(["intentos_agotados (a M13_FSM)"])
-    REG_OUT --> OUT_M11(["try (a M11)"])
+    CNT1 --> CMP1{"CMP >= 6<br/>intentos agotados"}
+    CMP1 --> OUT_FSM(["o_intentos_agotados (a M13_FSM)"])
+    CNT1 --> OUT_M11(["o_intentos (a M11)"])
 ```
 
 ### c) Objetivo del módulo
 
-Contar los intentos fallidos de la partida en curso. Se incrementa con cada pulso `try` de
-M07_Comparador-letra, reporta el total a M11_Transmisor-UART y le avisa a M13_FSM con
-`intentos_agotados` cuando llega a seis, que es la condición de derrota por intentos. Se limpia
-solo al ver que `state` entró a CARGA.
+Lleva la cuenta de letras incorrectas de la partida en curso y avisa cuando se alcanzaron las seis
+que el enunciado fija como máximo. Es la condición de derrota por intentos.
 
 ### d) Entradas
 
 - `clk`, `rst`.
-- `try`, pulso de intento evaluado, desde M07_Comparador-letra.
-- `state`, estado actual, desde M13_FSM, limpia la cuenta al entrar a CARGA.
+- `i_try`, pulso de intento fallido, desde `M07_Comparador-letra`.
+- `i_state[2:0]`, estado actual, desde `M13_FSM`. De acá solo le interesa CARGA.
+
+El módulo está parametrizado con `MAX_INTENTOS = 6`, el máximo que fija el enunciado.
 
 ### e) Salidas
 
-- `intentos_agotados`, bandera de seis letras incorrectas alcanzadas, hacia M13_FSM.
-- `try`, número acumulado de intentos, hacia M11_Transmisor-UART.
+- `o_intentos[$clog2(MAX_INTENTOS+1)-1:0]`, fallos acumulados de la partida, hacia
+  `M11_Transmisor-UART`.
+- `o_intentos_agotados`, bandera de seis fallos alcanzados, hacia `M13_FSM`.
 
 ## M13: FSM
 
