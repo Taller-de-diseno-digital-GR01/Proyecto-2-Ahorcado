@@ -1,6 +1,31 @@
 # M07 - Comparador de letra
 
-## Propósito
+## a) Nombre del módulo
+
+M07_Comparador-letra
+
+## b) Diagrama modular
+
+```mermaid
+flowchart LR
+    IN_LETRA(["i_letra, i_letra_nueva (de M10, hace de REG_Letra-in)"]) --> CONV["RESTA<br/>ASCII a código 0-25"]
+    CONV --> CMP_POS["CMP_POSICIONES<br/>un comparador por posición"]
+    IN_W(["i_word, i_word_length (de REG_Palabra-escogida)"]) --> CMP_POS
+    CONV --> REG_USADAS["REG_USADAS<br/>letras ya recibidas"]
+    IN_STATE(["i_state (de M13_FSM)"]) --> REG_USADAS
+    IN_STATE --> REG_MASC["REG_MASCARA<br/>posiciones reveladas"]
+    CMP_POS --> EVAL["EVALUACION<br/>acierto / fallo / repetida"]
+    REG_USADAS --> EVAL
+    CMP_POS --> REG_MASC
+    EVAL --> REG_ST["REG_LETRA_STATE<br/>registro"]
+    REG_ST --> OUT_ST(["o_letra_state, o_letra_lista (a M02 y M11)"])
+    EVAL --> OUT_TRY(["o_try (a M12)"])
+    REG_MASC --> OUT_MASC(["o_mascara (a M04 y M11)"])
+    REG_MASC --> CMP_FIN{"CMP<br/>todas reveladas"}
+    CMP_FIN --> OUT_COMP(["o_palabra_completa (a M13_FSM)"])
+```
+
+## c) Objetivo del módulo
 
 Compara la letra recibida con la palabra escogida y determina el resultado del intento. Guarda
 además cuáles posiciones de la palabra ya se revelaron y cuáles letras ya se recibieron, que es lo
@@ -8,60 +33,70 @@ que permite avisar cuando la palabra quedó completa y no penalizar una letra re
 
 ---
 
-## Entradas
+## d) Entradas
 
 - `clk`, `rst`.
-- `letra_in`: letra almacenada en `REG_Letra-in`.
-- `letra_nueva`: estrobo de un ciclo que avisa que `letra_in` acaba de cargarse, desde `REG_Letra-in`.
-- `word`: palabra almacenada en `REG_Palabra-escogida`.
-- `word_length`: cantidad de caracteres válidos de `word`, desde `REG_Palabra-escogida`.
-- `state`: estado actual, desde `M13_FSM`.
+- `i_letra[7:0]`, letra recibida en ASCII tal como sale de `M10_Receptor-UART`, que en el top hace
+  también de `REG_Letra-in`.
+- `i_letra_nueva`, pulso de un ciclo que avisa que `i_letra` acaba de cargarse, desde el mismo
+  registro.
+- `i_word[WORD_MAXLEN*LETRA_WIDTH-1:0]`, palabra de la partida, desde `REG_Palabra-escogida`. Cada
+  letra ocupa `LETRA_WIDTH` bits con su código de 0 a 25, y la primera letra va en los bits bajos.
+- `i_word_length[$clog2(WORD_MAXLEN+1)-1:0]`, cantidad de letras válidas de `i_word`, desde
+  `REG_Palabra-escogida`.
+- `i_state[2:0]`, estado actual, desde `M13_FSM`. De acá solo le interesa CARGA.
+
+El módulo está parametrizado con `WORD_MAXLEN = 12` y `LETRA_WIDTH = 5`, los mismos valores con los
+que `M08_LFSR` empaqueta la palabra y con los que `M11_Transmisor-UART` recibe la máscara.
 
 ---
 
 ## e) Salidas
 
-- `letra_state[1:0]`: resultado de la comparación, hacia `M02_Generador-Tono` y
+- `o_letra_state[1:0]`, resultado de la comparación, hacia `M02_Generador-Tono` y
   `M11_Transmisor-UART`.
-- `letra_lista`: estrobo de un ciclo que acompaña a `letra_state`, hacia `M02_Generador-Tono` y
-  `M11_Transmisor-UART`.
-- `palabra_completa`: todas las posiciones de la palabra reveladas, hacia `M13_FSM`.
-- `mascara`: posiciones reveladas, hacia `M04_Mostrar-LCD` y `M11_Transmisor-UART`, es el patrón
-  que se pinta en el LCD y el que viaja en la trama hacia la PC.
-- `try`: pulso de intento fallido, hacia `M12_Contador-Intentos`.
+- `o_letra_lista`, estrobo de un ciclo que acompaña a `o_letra_state`, hacia `M02_Generador-Tono`
+  y `M11_Transmisor-UART`.
+- `o_palabra_completa`, todas las posiciones de la palabra reveladas, hacia `M13_FSM`.
+- `o_mascara[WORD_MAXLEN-1:0]`, posiciones reveladas, hacia `M04_Mostrar-LCD` y
+  `M11_Transmisor-UART`. Es el patrón que se pinta en el LCD y el que viaja en la trama hacia la
+  PC. El bit 0 corresponde a la primera letra de la palabra.
+- `o_try`, pulso de intento fallido, hacia `M12_Contador-Intentos`.
 
-Codificación de `letra_state`:
+Codificación de `o_letra_state`:
 
-| `letra_state` | Significado |
-| ------------- | ----------- |
-| `00`          | FALLO, la letra no está en la palabra |
-| `01`          | ACIERTO, la letra reveló al menos una posición |
-| `10`          | REPETIDA, la letra ya se había recibido antes |
-| `11`          | sin uso |
+| `o_letra_state` | Significado |
+| --------------- | ----------- |
+| `00`            | FALLO, la letra no está en la palabra |
+| `01`            | ACIERTO, la letra reveló al menos una posición |
+| `10`            | REPETIDA, la letra ya se había recibido antes |
+| `11`            | sin uso |
 
 ---
 
 ## f) Relación con otros módulos
 
-`REG_Letra-in` le entrega la letra junto con el estrobo `letra_nueva`. Ese estrobo es necesario
+`REG_Letra-in` le entrega la letra junto con el estrobo `i_letra_nueva`. Ese estrobo es necesario
 porque la letra se queda en el registro después de evaluarse, y sin él el módulo estaría
-reevaluando la misma letra en cada ciclo de reloj.
+reevaluando la misma letra en cada ciclo de reloj. En el top ese registro no existe como bloque
+aparte. Son las salidas `o_letra` y `o_valid_w` de `M10_Receptor-UART`, que ya salen registradas.
 
 `REG_Palabra-escogida` le entrega la palabra y su longitud. La longitud se usa al arrancar la
 partida para saber cuántas posiciones de la máscara cuentan, ya que la palabra puede tener entre 4
-y 12 caracteres y el registro es de ancho fijo.
+y 12 caracteres y el registro es de ancho fijo. En el top ese registro es la salida `o_word` de
+`M08_LFSR`, de la que este módulo toma `word[59:0]` como palabra y `word[63:60]` como longitud.
 
-`M13_FSM` solo le da `state`, y este módulo lo usa para una cosa, limpiar la máscara y las letras
-usadas al ver que entró a CARGA. La FSM no le ordena comparar, la comparación la dispara la
-llegada de una letra.
+`M13_FSM` solo le da `i_state`. Con eso limpia la máscara y las letras usadas al ver que entró a
+CARGA, y en ese mismo estado ignora cualquier letra. La FSM no le ordena comparar, la comparación
+la dispara la llegada de una letra.
 
-Hacia afuera alimenta cuatro bloques. `M12_Contador-Intentos` recibe `try` y solo cuando la letra
-fue un fallo real. `M02_Generador-Tono` y `M11_Transmisor-UART` reciben `letra_state` con su
-estrobo, para el sonido y para la trama hacia la PC. `M13_FSM` recibe `palabra_completa`, que es
-la condición de victoria de la partida.
+Hacia afuera alimenta cinco bloques. `M12_Contador-Intentos` recibe `o_try`, y solo cuando la letra
+fue un fallo real. `M02_Generador-Tono` y `M11_Transmisor-UART` reciben `o_letra_state` con su
+estrobo, para el sonido y para la trama hacia la PC. `M04_Mostrar-LCD` y `M11_Transmisor-UART`
+reciben `o_mascara`. `M13_FSM` recibe `o_palabra_completa`, que es la condición de victoria.
 
 Vale la pena notar quién decide qué. Este módulo decide si la letra acierta, falla o está
-repetida, pero no decide si la partida se acaba. Reporta `palabra_completa` y deja que la FSM
+repetida, pero no decide si la partida se acaba. Reporta `o_palabra_completa` y deja que la FSM
 cambie de estado.
 
 ---
@@ -70,15 +105,16 @@ cambie de estado.
 
 Al entrar la partida a CARGA se limpian los dos registros de memoria del módulo, la máscara de
 posiciones reveladas y el conjunto de letras ya recibidas. La máscara se inicializa con unos en
-las posiciones que quedan fuera de `word_length`, para que esas posiciones de relleno no impidan
+las posiciones que quedan fuera de `i_word_length`, para que esas posiciones de relleno no impidan
 nunca detectar la palabra completa.
 
-Cuando llega `letra_nueva`, el módulo hace dos preguntas en paralelo. Primero, si esa letra ya
-está marcada en el conjunto de usadas. Segundo, si coincide con alguna de las posiciones válidas
-de la palabra.
+Cuando llega `i_letra_nueva`, el módulo convierte la letra de ASCII a código restándole `0x41`,
+porque el banco guarda cada letra en 5 bits con la A en cero. Con ese código hace dos preguntas en
+paralelo. Primero, si esa letra ya está marcada en el conjunto de usadas. Segundo, si coincide con
+alguna de las posiciones válidas de la palabra.
 
 Si la letra ya se había recibido, el resultado es REPETIDA y no pasa nada más. No se marca nada,
-no se pulsa `try`, y el temporizador ni se entera. Es exactamente lo que pide el enunciado, una
+no se pulsa `o_try`, y el temporizador ni se entera. Es exactamente lo que pide el enunciado, una
 letra repetida no consume intento ni reinicia el conteo de tiempo.
 
 Si la letra es nueva y coincide, se marcan de un solo golpe todas las posiciones donde aparece.
@@ -86,14 +122,20 @@ Esa es la parte que resuelve el requisito de revelar todas las ocurrencias simul
 comparación es paralela contra las doce posiciones y la máscara se actualiza con un OR, no hay
 recorrido secuencial de la palabra.
 
-Si la letra es nueva y no coincide, se marca como usada y se pulsa `try` para que
+Si la letra es nueva y no coincide, se marca como usada y se pulsa `o_try` para que
 `M12_Contador-Intentos` sume el fallo.
 
-`try` sale combinacional, en el mismo ciclo en que llega `letra_nueva`, un ciclo antes que
-`letra_lista`. Cuando `M11_Transmisor-UART` captura los intentos junto con `letra_lista`, el contador ya
-sumó el fallo de esta letra. Si `try` fuera registrado, la trama saldría con la cuenta de la letra anterior.
+`o_try` sale combinacional, en el mismo ciclo en que llega `i_letra_nueva`, un ciclo antes que
+`o_letra_lista`. Cuando `M11_Transmisor-UART` captura los intentos junto con `o_letra_lista`, el
+contador ya sumó el fallo de esta letra. Si `o_try` fuera registrado, la trama saldría con la cuenta
+de la letra anterior.
 
-`palabra_completa` sale de comparar la máscara contra el patrón de todos unos. Se evalúa de forma
+Una letra que llegue con `i_state` en CARGA se ignora entera, sin estrobo y sin intento. En el top
+no debería pasar, porque `M10_Receptor-UART` solo deja pasar letras en JUEGO. Aun así el módulo la
+bloquea, porque en ese ciclo la máscara y las usadas se están limpiando y no registran la letra, y
+si la evaluación sí la contara saldría una trama o un fallo de una letra que el módulo olvidó.
+
+`o_palabra_completa` sale de comparar la máscara contra el patrón de todos unos. Se evalúa de forma
 continua, así que se levanta en el mismo ciclo en que la última letra revela la última posición
 pendiente.
 
@@ -103,46 +145,48 @@ pendiente.
 
 ### Comparación paralela
 
-La letra entra a doce comparadores, uno por posición de `REG_Palabra-escogida`. Cada uno produce
-un bit de coincidencia:
+La letra entra a doce comparadores, uno por posición de `REG_Palabra-escogida`. Antes se convierte
+a código, y `word[i]` son los `LETRA_WIDTH` bits de la posición `i`, o sea
+`i_word[i*LETRA_WIDTH +: LETRA_WIDTH]`. Cada comparador produce un bit de coincidencia:
 
 $$
-coincide[i] = (word[i] = letra\_in) \land (i < word\_length)
+codigo = i\_letra - \text{0x41}
+$$
+
+$$
+coincide[i] = (word[i] = codigo) \land (i < i\_word\_length)
 $$
 
 $$
 hay\_coincidencia = \bigvee_{i=0}^{11} coincide[i]
 $$
 
-La condición `i < word_length` es la que evita que las posiciones de relleno del registro generen
-coincidencias falsas.
+La condición `i < i_word_length` es la que evita que las posiciones de relleno del registro generen
+coincidencias falsas. En el RTL la reducción se escribe como `coincide != '0`, que es el mismo OR.
 
 ### Evaluación de la letra
 
-Tabla de verdad de la evaluación, válida cuando `letra_nueva = 1`. `ya_usada` es el bit
-correspondiente a `letra_in` dentro de `REG_USADAS`:
+Tabla de verdad de la evaluación, válida cuando `i_letra_nueva = 1` e `i_state` no es CARGA.
+`ya_usada` es el bit correspondiente a `codigo` dentro de `REG_USADAS`:
 
-| `ya_usada` | `hay_coincidencia` | `letra_state` | `try` | `letra_lista` | `REG_MASCARA'` | `REG_USADAS'` |
-| ---------- | ------------------ | ------------- | ----- | ------------- | -------------- | ------------- |
-| `1`        | `x`                | `10` REPETIDA | `0`   | `1`           | sin cambio     | sin cambio    |
-| `0`        | `1`                | `01` ACIERTO  | `0`   | `1`           | `mascara \| coincide` | marca `letra_in` |
-| `0`        | `0`                | `00` FALLO    | `1`   | `1`           | sin cambio     | marca `letra_in` |
+| `ya_usada` | `hay_coincidencia` | `o_letra_state` | `o_try` | `o_letra_lista` | `REG_MASCARA'` | `REG_USADAS'` |
+| ---------- | ------------------ | --------------- | ------- | --------------- | -------------- | ------------- |
+| `1`        | `x`                | `10` REPETIDA   | `0`     | `1`             | sin cambio     | sin cambio    |
+| `0`        | `1`                | `01` ACIERTO    | `0`     | `1`             | `mascara \| coincide` | marca `codigo` |
+| `0`        | `0`                | `00` FALLO      | `1`     | `1`             | sin cambio     | marca `codigo` |
 
-Con `letra_nueva = 0` nada cambia, `try` y `letra_lista` quedan en cero y los dos registros
-conservan su valor. `letra_state` y `letra_lista` salen registrados un ciclo después de `letra_nueva`,
-`try` sale en el mismo ciclo (ver g).
+Con `i_letra_nueva = 0`, o con `i_state` en CARGA, `o_try` y `o_letra_lista` quedan en cero y
+`o_letra_state` conserva su valor. `o_letra_state` y `o_letra_lista` salen registrados un ciclo
+después de `i_letra_nueva`, `o_try` sale en el mismo ciclo (ver g).
 
-La letra repetida sí levanta `letra_lista`. Eso es a propósito, la PC tiene que enterarse de que
+La letra repetida sí levanta `o_letra_lista`. Eso es a propósito, la PC tiene que enterarse de que
 su letra se ignoró, si no el jugador se queda sin respuesta y vuelve a escribir.
 
 ### Registros de memoria
 
-`REG_USADAS` es un vector de 26 bits, uno por letra del alfabeto. El índice sale de restarle el
-código ASCII de la `A`:
-
-$$
-indice = letra\_in - \text{0x41}
-$$
+`REG_USADAS` es un vector de 26 bits, uno por letra del alfabeto. El índice es el mismo `codigo`
+de la comparación, así que no hace falta un segundo restador. `M10_Receptor-UART` ya filtró todo lo
+que no sea A-Z, por eso el índice nunca pasa de 25.
 
 Se eligió un bit por letra en vez de guardar la lista de letras recibidas porque la consulta es de
 un solo ciclo y el costo es fijo, 26 flip-flops, sin importar cuántas letras lleve la partida.
@@ -151,36 +195,38 @@ un solo ciclo y el costo es fijo, 26 flip-flops, sin importar cuántas letras ll
 
 Tabla de verdad de los dos registros, en orden de prioridad descendente:
 
-| Condición                        | `REG_MASCARA'`         | `REG_USADAS'`     |
-| -------------------------------- | ---------------------- | ----------------- |
-| `rst = 1`                        | todo en `0`            | todo en `0`       |
-| `state = CARGA`                  | relleno en `1`, resto en `0` | todo en `0` |
-| `letra_nueva = 1` (ver tabla anterior) | según evaluación | según evaluación  |
-| resto                            | sin cambio             | sin cambio        |
+| Condición                                  | `REG_MASCARA'`               | `REG_USADAS'`     |
+| ------------------------------------------ | ---------------------------- | ----------------- |
+| `rst = 1`                                  | todo en `0`                  | todo en `0`       |
+| `i_state = CARGA`                          | relleno en `1`, resto en `0` | todo en `0`       |
+| `i_letra_nueva = 1` y `ya_usada = 0`       | `mascara \| coincide`        | marca `codigo`    |
+| resto                                      | sin cambio                   | sin cambio        |
 
-El relleno en `1` significa poner en uno las posiciones desde `word_length` hasta la 11, que no
-pertenecen a la palabra de esta partida.
+El relleno en `1` significa poner en uno las posiciones desde `i_word_length` hasta la 11, que no
+pertenecen a la palabra de esta partida. En la fila de la letra nueva, un fallo deja `coincide` en
+ceros, así que la máscara no cambia y solo se marca la letra.
 
 ### Palabra completa
 
 $$
-palabra\_completa = \bigwedge_{i=0}^{11} mascara[i]
+o\_palabra\_completa = \bigwedge_{i=0}^{11} mascara[i]
 $$
 
-| `mascara`                     | `palabra_completa` |
-| ----------------------------- | ------------------ |
-| todos los bits en `1`         | `1`                |
-| al menos un bit en `0`        | `0`                |
+| `mascara`                     | `o_palabra_completa` |
+| ----------------------------- | -------------------- |
+| todos los bits en `1`         | `1`                  |
+| al menos un bit en `0`        | `0`                  |
 
 Gracias a la inicialización con relleno, este AND de doce bits sirve igual para una palabra de 4
-letras que para una de 12, sin comparar contra `word_length` en tiempo de ejecución.
+letras que para una de 12, sin comparar contra `i_word_length` en tiempo de ejecución. En el RTL se
+escribe como `mascara == '1`.
 
 ### Nota sobre latches
 
-La evaluación de la letra es combinacional y alimenta registros dentro de un `always_ff`. Las
-asignaciones de `letra_state` y `letra_lista` tienen valor por defecto antes del `if`, para que
-ninguna rama quede sin asignar. `try` es un `assign` continuo fuera de ese bloque, así que no tiene
-ramas que puedan quedar sin asignar.
+La comparación es un `always_comb` que asigna los doce bits de `coincide` y de `relleno` en cada
+vuelta del `for`, sin ramas. `o_letra_lista` tiene valor por defecto antes del `if` del `always_ff`
+y `o_letra_state` conserva su valor dentro de ese mismo bloque, que infiere un registro, así que
+tampoco hay latch ahí. `o_try` es un `assign` continuo, así que no tiene ramas que puedan quedar sin asignar.
 
 ---
 
@@ -188,53 +234,56 @@ ramas que puedan quedar sin asignar.
 
 ```mermaid
 flowchart LR
-    LETRA(["letra_in"]) --> CMP_POS["CMP_POSICIONES<br/>12 comparadores"]
-    WORD(["word"]) --> CMP_POS
-    LEN(["word_length"]) --> CMP_POS
+    LETRA(["i_letra"]) --> RESTA["RESTA<br/>i_letra - 0x41"]
+    RESTA -->|codigo| CMP_POS["CMP_POSICIONES<br/>12 comparadores"]
+    WORD(["i_word"]) --> CMP_POS
+    LEN(["i_word_length"]) --> CMP_POS
     CMP_POS -->|"coincide[11:0]"| OR_RED["OR<br/>reducción"]
     CMP_POS -->|"coincide[11:0]"| OR_MASC["OR<br/>actualiza máscara"]
 
-    LETRA --> DEC_IDX["DECOD_INDICE<br/>letra_in - 0x41"]
-    DEC_IDX --> REG_US["REG_USADAS<br/>26 flip-flops"]
+    RESTA -->|codigo| REG_US["REG_USADAS<br/>26 flip-flops"]
     REG_US -->|"ya_usada"| LOG_EV["LOGICA_EVALUACION<br/>combinacional"]
     OR_RED -->|"hay_coincidencia"| LOG_EV
-    NUEVA(["letra_nueva"]) --> LOG_EV
+    NUEVA(["i_letra_nueva"]) --> LOG_EV
+    ST(["i_state"]) --> CMP_CARGA{"CMP = CARGA"}
+    CMP_CARGA -->|bloquea| LOG_EV
 
     LOG_EV --> REG_LS["REG_LETRA_STATE<br/>registro"]
-    REG_LS --> OUT_LS(["letra_state[1:0]"])
-    LOG_EV --> OUT_LL(["letra_lista"])
-    LOG_EV --> OUT_TRY(["try"])
+    REG_LS --> OUT_LS(["o_letra_state[1:0]"])
+    LOG_EV --> REG_LL["REG_LETRA_LISTA<br/>registro"]
+    REG_LL --> OUT_LL(["o_letra_lista"])
+    LOG_EV --> OUT_TRY(["o_try"])
     LOG_EV -->|habilita| OR_MASC
 
     OR_MASC --> REG_MASC["REG_MASCARA<br/>12 flip-flops"]
     REG_MASC --> OR_MASC
     LEN --> REG_MASC
-    ST(["state"]) --> REG_MASC
-    ST --> REG_US
-    REG_MASC --> OUT_MASC(["mascara"])
+    CMP_CARGA -->|limpia| REG_MASC
+    CMP_CARGA -->|limpia| REG_US
+    REG_MASC --> OUT_MASC(["o_mascara"])
     REG_MASC --> AND_FIN["AND<br/>reducción de 12 bits"]
-    AND_FIN --> OUT_COMP(["palabra_completa"])
+    AND_FIN --> OUT_COMP(["o_palabra_completa"])
 ```
 
-`clk` y `rst` entran a los tres registros aunque no se dibujen, por el mismo criterio del resto de
-los diagramas del proyecto.
+`clk` y `rst` entran a los cuatro registros aunque no se dibujen, por el mismo criterio del resto
+de los diagramas del proyecto.
 
 ---
 
 ## j) Diagrama completo de conexiones del diseño
 
 Ningún puerto de este módulo sale de la FPGA, así que no le corresponde ninguna línea del
-`basys3.xdc`. Sus conexiones dentro de `CONTROL_JUEGO` son:
+`basys3.xdc`. Sus conexiones en `src/design/top.sv`, instancia `u_comparador_letra`, son:
 
-- `clk`, al reloj global de 100 MHz.
-- `rst`, a BTN_RST ya sincronizado.
-- `letra_in`, `letra_nueva`, desde `REG_Letra-in`.
-- `word`, `word_length`, desde `REG_Palabra-escogida`.
-- `state`, desde `M13_FSM`.
-- `letra_state`, `letra_lista`, hacia `M02_Generador-Tono` y `M11_Transmisor-UART`.
-- `mascara`, hacia `M04_Mostrar-LCD` y `M11_Transmisor-UART`.
-- `palabra_completa`, hacia `M13_FSM`.
-- `try`, hacia `M12_Contador-Intentos`.
+- `clk`, al reloj global de 100 MHz, pin W5.
+- `rst`, a la entrada `rst` del top, el botón central en el pin U18.
+- `i_letra`, `i_letra_nueva`, desde `o_letra` y `o_valid_w` de `M10_Receptor-UART`.
+- `i_word`, `i_word_length`, desde `word[59:0]` y `word[63:60]`, la palabra que entrega `M08_LFSR`.
+- `i_state`, desde `M13_FSM`.
+- `o_letra_state`, `o_letra_lista`, hacia `M02_Generador-Tono` y `M11_Transmisor-UART`.
+- `o_mascara`, hacia `M04_Mostrar-LCD` y `M11_Transmisor-UART`.
+- `o_palabra_completa`, hacia `M13_FSM`.
+- `o_try`, hacia `M12_Contador-Intentos`.
 
 El punto j) del método de diseño modular pide un diagrama de conexiones eléctricas por chips, que
 aplica a un montaje con circuitos integrados discretos. En un diseño que se sintetiza completo
