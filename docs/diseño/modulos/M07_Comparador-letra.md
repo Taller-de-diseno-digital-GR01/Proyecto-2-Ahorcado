@@ -89,6 +89,10 @@ recorrido secuencial de la palabra.
 Si la letra es nueva y no coincide, se marca como usada y se pulsa `try` para que
 `M12_Contador-Intentos` sume el fallo.
 
+`try` sale combinacional, en el mismo ciclo en que llega `letra_nueva`, un ciclo antes que
+`letra_lista`. Cuando `M11_Transmisor-UART` captura los intentos junto con `letra_lista`, el contador ya
+sumó el fallo de esta letra. Si `try` fuera registrado, la trama saldría con la cuenta de la letra anterior.
+
 `palabra_completa` sale de comparar la máscara contra el patrón de todos unos. Se evalúa de forma
 continua, así que se levanta en el mismo ciclo en que la última letra revela la última posición
 pendiente.
@@ -125,7 +129,8 @@ correspondiente a `letra_in` dentro de `REG_USADAS`:
 | `0`        | `0`                | `00` FALLO    | `1`   | `1`           | sin cambio     | marca `letra_in` |
 
 Con `letra_nueva = 0` nada cambia, `try` y `letra_lista` quedan en cero y los dos registros
-conservan su valor.
+conservan su valor. `letra_state` y `letra_lista` salen registrados un ciclo después de `letra_nueva`,
+`try` sale en el mismo ciclo (ver g).
 
 La letra repetida sí levanta `letra_lista`. Eso es a propósito, la PC tiene que enterarse de que
 su letra se ignoró, si no el jugador se queda sin respuesta y vuelve a escribir.
@@ -173,8 +178,9 @@ letras que para una de 12, sin comparar contra `word_length` en tiempo de ejecuc
 ### Nota sobre latches
 
 La evaluación de la letra es combinacional y alimenta registros dentro de un `always_ff`. Las
-asignaciones de `letra_state`, `try` y `letra_lista` tienen valor por defecto antes del `if`, para
-que ninguna rama quede sin asignar.
+asignaciones de `letra_state` y `letra_lista` tienen valor por defecto antes del `if`, para que
+ninguna rama quede sin asignar. `try` es un `assign` continuo fuera de ese bloque, así que no tiene
+ramas que puedan quedar sin asignar.
 
 ---
 

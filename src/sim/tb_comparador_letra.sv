@@ -47,8 +47,13 @@ module tb_comparador_letra;
 
   always #5 clk_tb = ~clk_tb;
 
+  logic try_del_ciclo;
+
+  // o_try es combinacional y ya bajo cuando se miran las salidas registradas, por eso se anota a mitad del ciclo
   // el #1 despues del flanco deja que las salidas se asienten antes de mirarlas
   task automatic ciclo();
+    @(negedge clk_tb);
+    try_del_ciclo = o_try_tb;
     @(posedge clk_tb);
     #1;
   endtask
@@ -95,9 +100,9 @@ module tb_comparador_letra;
   task automatic chequear_letra(input string nombre, input logic [1:0] estado,
                                 input logic lista, input logic intento);
     anotar(nombre,
-           o_letra_state_tb === estado && o_letra_lista_tb === lista && o_try_tb === intento,
+           o_letra_state_tb === estado && o_letra_lista_tb === lista && try_del_ciclo === intento,
            $sformatf("esperaba state=%02b lista=%0b try=%0b y dio state=%02b lista=%0b try=%0b",
-                     estado, lista, intento, o_letra_state_tb, o_letra_lista_tb, o_try_tb));
+                     estado, lista, intento, o_letra_state_tb, o_letra_lista_tb, try_del_ciclo));
   endtask
 
   task automatic chequear_completa(input string nombre, input logic esperada);

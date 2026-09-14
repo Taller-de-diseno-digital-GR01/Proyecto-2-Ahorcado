@@ -48,7 +48,7 @@ module tb_lfsr;
     localparam CARGA = 3'b001;
 
     localparam N_PALABRAS = 50;
-    localparam N_PALABRAS_DIFICIL = 20;
+    localparam N_PALABRAS_DIFICIL = 32;
 
     `define CHECK_BIT(nombre, got, expected) \
         if ((got) !== (expected)) begin \
@@ -138,8 +138,8 @@ module tb_lfsr;
         `CHECK_BIT("pulso_carga: valid_word se limpia al reentrar a CARGA", o_valid_word, 1'b0)
 
         // 5) Modo DIFICIL: la primera direccion valida tiene que caer en el rango que arma
-        //    ROM_IDX_DIFICIL con los parametros por defecto (placeholder: las ultimas
-        //    N_PALABRAS_DIFICIL direcciones del banco, ver TODO en lfsr.sv)
+        //    ROM_IDX_DIFICIL, las primeras N_PALABRAS_DIFICIL direcciones del banco (1-32), que
+        //    es donde banco_palabras.sv coloca las palabras de 6+ letras.
         i_modo = 1'b1;
         found = 1'b0;
         for (i = 0; i < 70 && !found; i = i + 1) begin
@@ -148,8 +148,8 @@ module tb_lfsr;
         end
         `CHECK_BIT("dificil: valid_word se levanta dentro de un periodo", found, 1'b1)
         direccion = o_word[5:0];
-        `CHECK_BIT("dificil: direccion capturada >= 31", (direccion >= (N_PALABRAS - N_PALABRAS_DIFICIL + 1)), 1'b1)
-        `CHECK_BIT("dificil: direccion capturada <= 50", (direccion <= N_PALABRAS[5:0]), 1'b1)
+        `CHECK_BIT("dificil: direccion capturada >= 1", (direccion >= 6'd1), 1'b1)
+        `CHECK_BIT("dificil: direccion capturada <= 32 (subconjunto dificil)", (direccion <= N_PALABRAS_DIFICIL[5:0]), 1'b1)
 
         if (errores == 0)
             $display("\n=== TODAS LAS PRUEBAS PASARON ===");
