@@ -49,6 +49,19 @@ module temporizador (
 
     assign start = dec_juego & ~dec_juego_prev;
 
+    // DEC_FIN: entrada a GANO o PERDIO. Corta la cuenta regresiva apenas se resuelve la partida
+    // por intentos o por completar la palabra, sin esperar a que el tiempo llegue solo a 0.
+    logic dec_fin, dec_fin_prev, pulso_fin;
+
+    assign dec_fin = (i_state == ST_GANO) || (i_state == ST_PERDIO);
+
+    always_ff @(posedge clk) begin
+        if (rst) dec_fin_prev <= 1'b0;
+        else dec_fin_prev <= dec_fin;
+    end
+
+    assign pulso_fin = dec_fin & ~dec_fin_prev;
+
     // MUX 2:1 del tiempo inicial segun modo
     always_comb begin
         if (modo) begin //cuando modo es 1, se carga el tiempo de dificil
@@ -60,12 +73,14 @@ module temporizador (
         end
     end
 
-    // REG_RUNNING: se apaga sola al llegar a cero, sin necesitar una entrada "detener"
+    // REG_RUNNING: se apaga sola al llegar a cero, o al entrar a GANO/PERDIO (partida resuelta
+    // por intentos o por completar la palabra, sin agotar el tiempo). Sin necesitar una entrada
+    // "detener" aparte.
     always_ff @(posedge clk) begin
         if (rst)
             running <= 1'b0;
         else
-            running <= start | (running & ~zero);
+            running <= start | (running & ~zero & ~dec_fin);
     end
 
     // CONT_PRESCALER: contador descendente de 27 bits, genera tick_1hz con su propio borrow
@@ -94,6 +109,9 @@ module temporizador (
         end else if (start) begin
             tiempo_dec <= tiempo_dec_inicial;
             tiempo_uni <= tiempo_uni_inicial;
+        end else if (pulso_fin) begin
+            tiempo_dec <= 4'd0;
+            tiempo_uni <= 4'd0;
         end else if (cten && !zero) begin
             if (tiempo_uni == 4'd0) begin
                 tiempo_uni <= 4'd9;
@@ -119,18 +137,7 @@ module temporizador (
             tiempo_agotado <= 1'b1;
     end
 
-    // DEC_FIN: entrada a GANO o PERDIO, mismo patron de flanco que dec_juego arriba
-    logic dec_fin, dec_fin_prev, pulso_fin;
     logic [ESPERA_WIDTH-1:0] cont_espera;
-
-    assign dec_fin = (i_state == ST_GANO) || (i_state == ST_PERDIO);
-
-    always_ff @(posedge clk) begin
-        if (rst) dec_fin_prev <= 1'b0;
-        else dec_fin_prev <= dec_fin;
-    end
-
-    assign pulso_fin = dec_fin & ~dec_fin_prev;
 
     // CONT_ESPERA: cuenta los tick_1hz transcurridos desde que se entro al estado de fin,
     // se satura en ESPERA_S para no dar la vuelta si la FSM tarda en consumir o_fin_espera

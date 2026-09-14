@@ -110,9 +110,10 @@ module tb_top;
         btn_ok  = 1'b0;
         rx_i    = 1'b1; // linea serial en reposo
 
-        // Sustituye al banco de palabras real (REG_WBank), pendiente de integrar: lfsr toma
-        // bank_word_stub como si fuera la ROM, sin importar que direccion pida
-        force dut.bank_word_stub = PALABRA_CARRO;
+        // Fuerza una palabra conocida sin depender de que direccion escoja el LFSR
+        // pseudoaleatorio, para que el resto del camino (JUEGO -> letras -> GANO) sea
+        // determinista en la prueba, igual que antes de integrar el banco real.
+        force dut.bank_word = PALABRA_CARRO;
 
         repeat (5) @(posedge clk);
         anotar("tras rst la fsm arranca en SELECCION", dut.state === ST_SELECCION);

@@ -1,4 +1,3 @@
-//TODO: Nos hace falta agregar lo del banco de palabaras 
 module top (
     input  logic       clk,
     input  logic       rst,
@@ -89,37 +88,28 @@ module top (
     );
 
     // M08_LFSR: escoge la palabra secreta al entrar a CARGA
-    // TODO: banco de palabras (REG_WBank) pendiente de integrar por el equipo.
-    // Stub temporal: mismo ancho que los parametros por defecto de lfsr (WORD_MAXLEN=12,
-    // LETRA_WIDTH=5 -> WORD_MAXLEN*LETRA_WIDTH+4 = 64 bits).
+    // Ancho de bank_word/word: mismo calculo que los parametros por defecto de lfsr
+    // (WORD_MAXLEN=12, LETRA_WIDTH=5 -> WORD_MAXLEN*LETRA_WIDTH+4 = 64 bits).
     localparam int BANK_ADDR_WIDTH = 6;  // $clog2(50+1)
     localparam int WORD_WIDTH      = 64; // WORD_MAXLEN*LETRA_WIDTH+4
 
     logic [BANK_ADDR_WIDTH-1:0] bank_addr;
-    logic [WORD_WIDTH-1:0]      bank_word_stub;
+    logic [WORD_WIDTH-1:0]      bank_word;
     logic [WORD_WIDTH-1:0]      word;
 
-    // TODO: placeholder de bring-up para poder probar el flujo completo en la FPGA sin el banco
-    // de palabras real. bank_word_stub queda fijo en "CARRO" sin importar la direccion que pida
-    // lfsr.
-    localparam logic [WORD_WIDTH-1:0] PALABRA_CARRO_TEMP = {
-        4'd5,                                           // longitud = 5
-        5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0, 5'd0,       // letra12..letra6, sin usar
-        5'd14,                                           // letra5 = O
-        5'd17,                                           // letra4 = R
-        5'd17,                                           // letra3 = R
-        5'd0,                                            // letra2 = A
-        5'd2                                             // letra1 = C
-    };
-
-    assign bank_word_stub = PALABRA_CARRO_TEMP;
+    // REG_WBank: banco real de 50 palabras. Direcciones 1-32 las de 6+ letras (subconjunto
+    // DIFICIL que muestrea lfsr), 33-50 las de 4-5 letras.
+    banco_palabras u_banco_palabras (
+        .i_bank_addr(bank_addr),
+        .o_bank_word(bank_word)
+    );
 
     lfsr u_lfsr (
         .clk         (clk),
         .rst         (rst),
         .i_state     (state),
         .i_modo      (modo),
-        .i_bank_word (bank_word_stub),
+        .i_bank_word (bank_word),
         .o_bank_addr (bank_addr),
         .o_word      (word),
         .o_valid_word(valid_word)
