@@ -110,9 +110,9 @@ module tb_top;
         btn_ok  = 1'b0;
         rx_i    = 1'b1; // linea serial en reposo
 
-        // Sustituye al banco de palabras real (REG_WBank), pendiente de integrar: lfsr toma
-        // bank_word_stub como si fuera la ROM, sin importar que direccion pida
-        force dut.bank_word_stub = PALABRA_CARRO;
+        // Fuerza la salida del banco de palabras real (REG_WBank) a "CARRO" sin importar la
+        // direccion que pida lfsr, para mantener el camino de juego determinista en esta prueba
+        force dut.bank_word = PALABRA_CARRO;
 
         repeat (5) @(posedge clk);
         anotar("tras rst la fsm arranca en SELECCION", dut.state === ST_SELECCION);
