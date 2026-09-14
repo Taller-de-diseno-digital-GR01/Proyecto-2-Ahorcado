@@ -62,7 +62,6 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
   // 3. Evaluación de la letra, sale un ciclo después del pulso, alineada con la actualización de la máscara
   always_ff @(posedge clk) begin
     o_letra_lista <= 1'b0;
-    o_try <= 1'b0;
     if (rst) begin
       o_letra_state <= FALLO;
     end
@@ -76,7 +75,6 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
       end
       else begin
         o_letra_state <= FALLO;
-        o_try <= 1'b1;
       end
     end
   end
@@ -84,5 +82,6 @@ module comparador_letra #(parameter WORD_MAXLEN = 12, parameter LETRA_WIDTH = 5)
   // 4. Salidas continuas
   assign o_mascara = mascara;
   assign o_palabra_completa = (mascara == '1); // lo mismo que &mascara, se levanta el mismo ciclo en que la última letra revela la última posición
+  assign o_try = i_letra_nueva && i_state != CARGA && !ya_usada && !hay_coincidencia; // sale en el mismo ciclo que la letra, así contador_intentos ya sumó el fallo cuando transmisor_uart captura los intentos con o_letra_lista
 
 endmodule
