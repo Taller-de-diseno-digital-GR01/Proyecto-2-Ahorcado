@@ -110,9 +110,8 @@ module tb_top;
         btn_ok  = 1'b0;
         rx_i    = 1'b1; // linea serial en reposo
 
-        // Fuerza una palabra conocida sin depender de que direccion escoja el LFSR
-        // pseudoaleatorio, para que el resto del camino (JUEGO -> letras -> GANO) sea
-        // determinista en la prueba, igual que antes de integrar el banco real.
+        // Fuerza la salida del banco de palabras real (REG_WBank) a "CARRO" sin importar la
+        // direccion que pida lfsr, para mantener el camino de juego determinista en esta prueba
         force dut.bank_word = PALABRA_CARRO;
 
         repeat (5) @(posedge clk);

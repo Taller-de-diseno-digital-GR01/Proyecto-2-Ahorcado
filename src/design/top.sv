@@ -97,8 +97,7 @@ module top (
     logic [WORD_WIDTH-1:0]      bank_word;
     logic [WORD_WIDTH-1:0]      word;
 
-    // REG_WBank: banco real de 50 palabras. Direcciones 1-32 las de 6+ letras (subconjunto
-    // DIFICIL que muestrea lfsr), 33-50 las de 4-5 letras.
+    // M14_Banco-Palabras: ROM combinacional con las 50 palabras, direccionada por lfsr
     banco_palabras u_banco_palabras (
         .i_bank_addr(bank_addr),
         .o_bank_word(bank_word)
