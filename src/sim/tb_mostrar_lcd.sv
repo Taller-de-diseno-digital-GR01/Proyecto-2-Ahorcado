@@ -56,6 +56,7 @@ module tb_mostrar_lcd;
   logic [95:0] i_word;
   logic [3:0]  i_word_length;
   logic [11:0] i_mascara;
+  logic [2:0]  i_intentos;
   logic [31:0] i_rdata;
 
   logic [1:0]  o_addr;
@@ -72,6 +73,7 @@ module tb_mostrar_lcd;
     .i_word(i_word),
     .i_word_length(i_word_length),
     .i_mascara(i_mascara),
+    .i_intentos(i_intentos),
     .i_rdata(i_rdata),
     .o_addr(o_addr),
     .o_write_enable(o_write_enable),
@@ -162,6 +164,40 @@ module tb_mostrar_lcd;
           $display("OK    [%0t ns] %s: %0b", $time, nombre, (got)); \
       end
 
+  // Como CHECK_SCREEN, pero para la pantalla de JUEGO: screen[0..len-1] contra la palabra,
+  // screen[len..11] contra espacios, y el sufijo fijo de intentos en 12..15 (" I:" + digito de
+  // restantes) contra el caracter restantes que se le pase.
+  `define CHECK_SCREEN_JUEGO(nombre, texto, len, restantes) \
+      begin \
+          logic [8*(len)-1:0] __ref; \
+          string __got; \
+          logic  __ok; \
+          __ref = texto; \
+          __got = ""; \
+          __ok  = 1'b1; \
+          for (int __i = 0; __i < 16; __i = __i + 1) begin \
+              __got = {__got, string'(screen[__i])}; \
+              if (__i < (len)) begin \
+                  if (screen[__i] !== __ref[8*((len)-1-__i) +: 8]) __ok = 1'b0; \
+              end else if (__i < 12) begin \
+                  if (screen[__i] !== " ") __ok = 1'b0; \
+              end else if (__i == 12) begin \
+                  if (screen[__i] !== " ") __ok = 1'b0; \
+              end else if (__i == 13) begin \
+                  if (screen[__i] !== "I") __ok = 1'b0; \
+              end else if (__i == 14) begin \
+                  if (screen[__i] !== ":") __ok = 1'b0; \
+              end else begin \
+                  if (screen[__i] !== (restantes)) __ok = 1'b0; \
+              end \
+          end \
+          if (__ok) $display("OK    [%0t ns] %s: pantalla=\"%s\"", $time, nombre, __got); \
+          else begin \
+              $display("FALLO [%0t ns] %s: pantalla=\"%s\", se esperaba palabra \"%s\" + intentos restantes '%s'", $time, nombre, __got, texto, (restantes)); \
+              errores = errores + 1; \
+          end \
+      end
+
   // Compara screen[0..len-1] contra texto (literal de Verilog) y screen[len..15] contra espacios
   `define CHECK_SCREEN(nombre, texto, len) \
       begin \
@@ -203,6 +239,7 @@ module tb_mostrar_lcd;
     i_state       = ST_SELECCION;
     i_modo        = 1'b0;
     i_mascara     = 12'b0;
+    i_intentos    = 3'd0;
     i_word_length = 4'd0;
     for (int k = 0; k < 12; k = k + 1) i_word[k*8 +: 8] = " ";
     repeat (3) @(posedge clk);
@@ -234,17 +271,24 @@ module tb_mostrar_lcd;
     i_mascara     = 12'b0000_0000_0000;
     i_state       = ST_JUEGO;
     `WAIT_REDIBUJADO
-    `CHECK_SCREEN("juego: nada revelado", "____", 4)
+    `CHECK_SCREEN_JUEGO("juego: nada revelado (6 intentos)", "____", 4, "6")
 
     // 5) M07 revela la G (posicion 0): mascara cambia, M04 redibuja solo
     i_mascara = 12'b0000_0000_0001;
     `WAIT_REDIBUJADO
-    `CHECK_SCREEN("juego: G revelada", "G___", 4)
+    `CHECK_SCREEN_JUEGO("juego: G revelada", "G___", 4, "6")
 
-    // 6) Se revela tambien la T (posicion 2), sin perder la G ya pintada
+    // 5b) Un fallo (letra incorrecta): la mascara NO cambia (no se revela nada), pero el conteo
+    //     de intentos si. Verifica que "cambio" tambien reaccione a i_intentos (ver comentario en
+    //     mostrar_lcd.sv): sin esa condicion aparte de mascara, un fallo nunca dispararia redibujado.
+    i_intentos = 3'd1;
+    `WAIT_REDIBUJADO
+    `CHECK_SCREEN_JUEGO("juego: fallo baja intentos a 5 sin tocar la palabra", "G___", 4, "5")
+
+    // 6) Se revela tambien la T (posicion 2), sin perder la G ya pintada ni el conteo de intentos
     i_mascara = 12'b0000_0000_0101;
     `WAIT_REDIBUJADO
-    `CHECK_SCREEN("juego: G y T reveladas", "G_T_", 4)
+    `CHECK_SCREEN_JUEGO("juego: G y T reveladas", "G_T_", 4, "5")
 
     // 7) Se revela la A: dispara un nuevo redibujado ("GAT_"). A medio camino de ESE redibujado
     //    se revela tambien la O (palabra completa). Verifica que "cambio" se mantenga en 1
@@ -258,7 +302,7 @@ module tb_mostrar_lcd;
     wait (dut.estado == HOME_ENC);  // arranca sola una segunda rafaga
     wait (dut.estado == IDLE_ENC);
     #1;
-    `CHECK_SCREEN("juego: redibujado se actualiza aunque cambie a medio envio", "GATO", 4)
+    `CHECK_SCREEN_JUEGO("juego: redibujado se actualiza aunque cambie a medio envio", "GATO", 4, "5")
 
     // 8) Resultado: GANO
     i_state = ST_GANO;

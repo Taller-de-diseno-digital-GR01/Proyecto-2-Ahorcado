@@ -291,6 +291,7 @@ module top (
         .i_word        (word_ascii),
         .i_word_length (word[63:60]),
         .i_mascara     (mascara),
+        .i_intentos    (intentos),
         .i_rdata       (lcd_bus_rdata),
         .o_addr        (lcd_bus_addr),
         .o_write_enable(lcd_bus_we),
