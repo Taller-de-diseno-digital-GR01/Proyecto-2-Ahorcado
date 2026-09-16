@@ -16,3 +16,5 @@ clockInfo.txt
 
 __pycache__/
 *.pyc
+
+sw/.venv/
