@@ -11,8 +11,6 @@ module palabra_escogida #(
   output logic [3:0]                         o_word_length,
 
   // Version ASCII de la palabra, util para el LCD.
-  // Empacada como WORD_MAXLEN caracteres de 8 bits: caracter 0 en los bits
-  // menos significativos (o_word_ascii[7:0]), caracter 1 en [15:8], etc.
   output logic [WORD_MAXLEN*8-1:0]           o_word_ascii
 );
 

@@ -13,6 +13,7 @@ module mostrar_lcd (
   input logic [95:0] i_word,         // palabra escogida, desde REG_Palabra-escogida; 12 letras ASCII empacadas, letra 0 en los bits bajos
   input logic [3:0]  i_word_length,  // cuantas posiciones de i_word son validas
   input logic [11:0] i_mascara,      // posiciones ya reveladas, desde M07_Comparador-letra
+  input logic [2:0]  i_intentos,     // fallos acumulados (0-6), desde M12_Contador-Intentos
 
   input logic [31:0] i_rdata,        // lo que devuelve PERIFERICO_LCD en la direccion que le estoy poniendo
 
@@ -57,6 +58,7 @@ module mostrar_lcd (
   logic [2:0]  act_state;
   logic        act_modo;
   logic [11:0] act_mascara;
+  logic [2:0]  act_intentos;
   logic [3:0]  act_last_pos; // ultima posicion valida del mensaje activo (largo - 1)
 
   function automatic logic [7:0] f_byte(
@@ -106,11 +108,56 @@ module mostrar_lcd (
     end
   endfunction
 
-  // Largo (ultima posicion) de cada mensaje, se calcula una sola vez al entrar a HOME
-  function automatic logic [3:0] f_last_pos(input logic [2:0] st, input logic mo, input logic [3:0] wlen);
+  // Digito ASCII de intentos restantes, tabla directa sobre los fallos acumulados (0-6) en vez
+  // de un restador: mismos 7 valores posibles que ya satura M12_Contador-Intentos, y el proyecto
+  // ya prefiere ROM/MUX sobre aritmetica dedicada para mensajes fijos (ver f_byte).
+  function automatic logic [7:0] f_intentos_digit(input logic [2:0] fallos);
+    logic [7:0] d;
+    begin
+      case (fallos)
+        3'd0: d = "6"; 3'd1: d = "5"; 3'd2: d = "4"; 3'd3: d = "3";
+        3'd4: d = "2"; 3'd5: d = "1"; 3'd6: d = "0";
+        default: d = "0"; // 7 no alcanzable, el contador de M12 satura en 6
+      endcase
+      f_intentos_digit = d;
+    end
+  endfunction
+
+  // Pantalla de JUEGO: letras/guiones en 0..word_length-1, relleno en blanco hasta la posicion
+  // 11, y un sufijo fijo de 4 caracteres (" I:n") en 12..15 con los intentos restantes. El
+  // sufijo queda fijo en las ultimas 4 posiciones sin importar el largo de la palabra (maximo
+  // 12 letras), asi nunca se pisan.
+  function automatic logic [7:0] f_byte_juego(
+      input logic [3:0]  p,
+      input logic [11:0] masc,
+      input logic [95:0] wd,
+      input logic [3:0]  wlen,
+      input logic [2:0]  fallos
+    );
+    logic [7:0] b;
+    begin
+      if (p < wlen) b = masc[p] ? wd[p*8 +: 8] : "_";
+      else if (p < 4'd12) b = " ";
+      else begin
+        case (p)
+          4'd12: b = " ";
+          4'd13: b = "I";
+          4'd14: b = ":";
+          4'd15: b = f_intentos_digit(fallos);
+          default: b = " ";
+        endcase
+      end
+      f_byte_juego = b;
+    end
+  endfunction
+
+  // Largo (ultima posicion) de cada mensaje, se calcula una sola vez al entrar a HOME. JUEGO
+  // ahora siempre ocupa las 16 posiciones (palabra + sufijo de intentos), ya no depende de
+  // word_length.
+  function automatic logic [3:0] f_last_pos(input logic [2:0] st, input logic mo);
     case (st)
       ST_SELECCION: f_last_pos = mo ? 4'd12 : 4'd10;
-      ST_JUEGO:     f_last_pos = (wlen == 4'd0) ? 4'd0 : (wlen - 4'd1);
+      ST_JUEGO:     f_last_pos = 4'd15;
       ST_GANO:      f_last_pos = 4'd6;
       ST_PERDIO:    f_last_pos = 4'd7;
       default:      f_last_pos = 4'd0;
@@ -125,14 +172,16 @@ module mostrar_lcd (
   assign busy = i_rdata[BIT_BUSY];
 
   // "cambio" reemplaza al pulso show que tenia la FSM principal: se repinta cuando cambia el
-  // state, o cuando cambia lo que compone la pantalla actual (modo en SELECCION, mascara en
-  // JUEGO). Se compara contra la foto "activa", asi que si el contenido cambia otra vez a medio
-  // envio, cambio se mantiene en 1 y en cuanto vuelve a IDLE arranca un nuevo envio con lo mas
-  // reciente.
+  // state, o cuando cambia lo que compone la pantalla actual (modo en SELECCION, mascara o
+  // intentos en JUEGO). Se compara contra la foto "activa", asi que si el contenido cambia otra
+  // vez a medio envio, cambio se mantiene en 1 y en cuanto vuelve a IDLE arranca un nuevo envio
+  // con lo mas reciente. intentos entra aqui aparte de mascara porque una letra fallida no
+  // revela ninguna posicion (mascara no cambia), asi que sin esta condicion un fallo nunca
+  // dispararia el redibujado del contador.
   logic cambio;
   assign cambio = (i_state != act_state)
-                || (i_state == ST_SELECCION && i_modo    != act_modo)
-                || (i_state == ST_JUEGO     && i_mascara != act_mascara);
+                || (i_state == ST_SELECCION && i_modo     != act_modo)
+                || (i_state == ST_JUEGO     && (i_mascara != act_mascara || i_intentos != act_intentos));
 
   always_comb begin
     estado_siguiente    = estado;
@@ -181,6 +230,7 @@ module mostrar_lcd (
       act_state    <= 3'b111; // codigo no usado por M13_FSM, fuerza el primer redibujado
       act_modo     <= 1'b0;
       act_mascara  <= 12'b0;
+      act_intentos <= 3'b0;
       act_last_pos <= 4'd0;
     end
     else begin
@@ -192,7 +242,8 @@ module mostrar_lcd (
         act_state    <= i_state;
         act_modo     <= i_modo;
         act_mascara  <= i_mascara;
-        act_last_pos <= f_last_pos(i_state, i_modo, i_word_length);
+        act_intentos <= i_intentos;
+        act_last_pos <= f_last_pos(i_state, i_modo);
       end
     end
   end
@@ -214,9 +265,11 @@ module mostrar_lcd (
       SEND: if (byte_step == 1'b0) begin
               o_addr         = ADDR_DATOS;
               o_write_enable = 1'b1;
-              // Posiciones reveladas muestran la letra real de la palabra, el resto un guion bajo
-              o_wdata[7:0]   = (act_state == ST_JUEGO) ? (act_mascara[pos] ? i_word[pos*8 +: 8] : "_")
-                                                        : f_byte(act_state, act_modo, pos);
+              // JUEGO: palabra (revelada o guion bajo) + sufijo de intentos restantes.
+              // Resto de pantallas: mensaje fijo por state/modo.
+              o_wdata[7:0]   = (act_state == ST_JUEGO)
+                                  ? f_byte_juego(pos, act_mascara, i_word, i_word_length, act_intentos)
+                                  : f_byte(act_state, act_modo, pos);
             end
             else begin
               o_write_enable     = 1'b1;
