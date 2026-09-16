@@ -53,12 +53,12 @@ BIT        ?= $(BIT_OUT)
 # el build si src/build/ quedó con binarios de otra máquina
 TOOLCHAIN_STAMP := $(BUILD_DIR)/.toolchain
 
-.PHONY: all help list sim wave dump test test-app test-teclado synth bitstream program connect clean check-tb check-fpga-toolchain
+.PHONY: all help list sim wave dump test test-app test-teclado synth bitstream program connect app clean check-tb check-fpga-toolchain
 
-all: bitstream program
+all: bitstream program app
 
 help:
-	@echo "make all                genera el bitstream y lo carga a la FPGA (bitstream + program)"
+	@echo "make all                genera el bitstream, lo carga a la FPGA, y abre la app de PC (bitstream + program + app)"
 	@echo "make list              lista los testbenches disponibles"
 	@echo "make sim  TB=<modulo>  compila y corre src/sim/tb_<modulo>.sv"
 	@echo "make wave TB=<modulo>  corre la simulación y abre GTKWave"
@@ -71,6 +71,7 @@ help:
 	@echo "                        requiere /opt/openxc7/bin en el PATH (source /opt/openxc7/export.sh)"
 	@echo "make program BIT=<archivo.bit>  carga un .bit al Basys3 con openFPGALoader"
 	@echo "make connect             verifica que la Basys3 esté detectable por USB/JTAG antes de programar"
+	@echo "make app                 corre la app de PC (terminal remota del ahorcado por UART)"
 	@echo "make clean"
 	@echo ""
 	@echo "Testbenches disponibles, $(TBS)"
@@ -222,6 +223,10 @@ connect: | $(BUILD_DIR)
 
 program: connect
 	$(PRIV) $(OPENFPGALOADER) -b $(BOARD) $(BIT)
+
+# Terminal interactiva, busca la tarjeta sola si no se pasa PUERTO
+app:
+	$(PYTHON) $(APP_DIR)/ahorcado_pc.py $(if $(PUERTO),-p $(PUERTO))
 
 test: check-tb # <-- Esto corre make sim para cada testbench en $(TBS), uno por uno
 	@estado=0; \
