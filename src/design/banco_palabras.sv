@@ -83,29 +83,38 @@ module banco_palabras #(
     end
   endfunction
 
-  // Lectura combinacional de la direccion solicitada por el LFSR y empaque de la palabra.
   // Formato de salida:
   // {longitud[3:0], letra_WORD_MAXLEN[4:0], ..., letra2[4:0], letra1[4:0]}
-  always_comb begin
-    o_bank_word = '0;
-
-    if ((i_bank_addr >= 1) && (i_bank_addr <= N_PALABRAS)) begin
-      // Longitud en los 4 bits superiores.
-      o_bank_word[WORD_MAXLEN*LETRA_WIDTH +: 4] = rom_longitud[i_bank_addr];
-
+  function automatic logic [WORD_MAXLEN*LETRA_WIDTH+3:0] empaquetar(
+    input logic [WORD_MAXLEN*8-1:0]  ascii,
+    input logic [LONGITUD_WIDTH-1:0] longitud
+  );
+    begin
+      empaquetar = '0;
+      empaquetar[WORD_MAXLEN*LETRA_WIDTH +: 4] = longitud;
       // letra1 queda en los bits menos significativos.
+      // El string queda alineado a la derecha: la primera letra está en el byte longitud-1.
       for (int pos = 0; pos < WORD_MAXLEN; pos++) begin
-        if (pos < rom_longitud[i_bank_addr]) begin
-          o_bank_word[pos*LETRA_WIDTH +: LETRA_WIDTH] =
-            ascii_a_codigo(
-              rom_ascii[i_bank_addr][((rom_longitud[i_bank_addr]-1-pos)*8) +: 8]
-            );
-        end
-        else begin
-          o_bank_word[pos*LETRA_WIDTH +: LETRA_WIDTH] = RELLENO;
+        empaquetar[pos*LETRA_WIDTH +: LETRA_WIDTH] = RELLENO;
+        for (int k = 0; k < WORD_MAXLEN; k++) begin
+          if ((pos < longitud) && (k == longitud - 1 - pos))
+            empaquetar[pos*LETRA_WIDTH +: LETRA_WIDTH] = ascii_a_codigo(ascii[k*8 +: 8]);
         end
       end
     end
+  endfunction
+
+  // Empaque con índice constante para que síntesis lo pliegue a constantes; si se hace con
+  // i_bank_addr, el part-select variable queda como lógica y rompe timing a 100 MHz.
+  logic [N_PALABRAS:0][WORD_MAXLEN*LETRA_WIDTH+3:0] rom_word;
+
+  assign rom_word[0] = '0;
+
+  genvar gi;
+  for (gi = 1; gi <= N_PALABRAS; gi++) begin : g_rom_word
+    assign rom_word[gi] = empaquetar(rom_ascii[gi], rom_longitud[gi]);
   end
+
+  assign o_bank_word = (i_bank_addr <= N_PALABRAS) ? rom_word[i_bank_addr] : '0;
 
 endmodule
