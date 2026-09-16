@@ -11,7 +11,9 @@ module palabra_escogida #(
   output logic [3:0]                         o_word_length,
 
   // Version ASCII de la palabra, util para el LCD.
-  output logic [7:0]                         o_word_ascii [0:WORD_MAXLEN-1]
+  // Empacada como WORD_MAXLEN caracteres de 8 bits: caracter 0 en los bits
+  // menos significativos (o_word_ascii[7:0]), caracter 1 en [15:8], etc.
+  output logic [WORD_MAXLEN*8-1:0]           o_word_ascii
 );
 
   assign o_word_codes  = i_word_packed[WORD_MAXLEN*LETRA_WIDTH-1:0];
@@ -20,9 +22,9 @@ module palabra_escogida #(
   always_comb begin
     for (int pos = 0; pos < WORD_MAXLEN; pos++) begin
       if (pos < o_word_length)
-        o_word_ascii[pos] = 8'h41 + i_word_packed[pos*LETRA_WIDTH +: LETRA_WIDTH];
+        o_word_ascii[pos*8 +: 8] = 8'h41 + i_word_packed[pos*LETRA_WIDTH +: LETRA_WIDTH];
       else
-        o_word_ascii[pos] = 8'h20;
+        o_word_ascii[pos*8 +: 8] = 8'h20;
     end
   end
 
