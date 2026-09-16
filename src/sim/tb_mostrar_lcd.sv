@@ -304,6 +304,17 @@ module tb_mostrar_lcd;
     #1;
     `CHECK_SCREEN_JUEGO("juego: redibujado se actualiza aunque cambie a medio envio", "GATO", 4, "5")
 
+    // 7b) Palabra de 12 letras (el maximo de word_length) completamente revelada, con 6 fallos
+    //     (0 intentos restantes): confirma que el sufijo fijo en 12..15 nunca se pisa con la
+    //     ultima letra de la palabra mas larga posible, y que el digito de "agotados" (0, la fila
+    //     limite de f_intentos_digit) se pinta bien.
+    for (int k = 0; k < 12; k = k + 1) i_word[k*8 +: 8] = 8'("A" + k);
+    i_word_length = 4'd12;
+    i_mascara     = 12'hFFF;
+    i_intentos    = 3'd6;
+    `WAIT_REDIBUJADO
+    `CHECK_SCREEN_JUEGO("juego: palabra de 12 letras + 0 intentos restantes", "ABCDEFGHIJKL", 12, "0")
+
     // 8) Resultado: GANO
     i_state = ST_GANO;
     `WAIT_REDIBUJADO
