@@ -125,13 +125,17 @@ module temporizador (
     assign tiempo = {tiempo_dec, tiempo_uni};//se asigna el tiempo en BCD a la salida
 
     // tiempo_agotado: se levanta solo cuando el tiempo llega a 0 mientras estaba corriendo
-    // (running & zero), se limpia con start/rst y se mantiene en alto el resto de los ciclos.
+    // (running & zero), y se limpia con rst, con start o con pulso_fin.
     // (Si se levantara directo de "zero", quedaria en falso "agotado" tras un reset, antes
     // de cualquier start, porque tiempo arranca en 0 y por tanto zero=1 sin haber corrido.)
+    // Limpiarlo solo con start no alcanza: start sale en el primer ciclo de JUEGO y el registro
+    // recien baja al final de ese ciclo, asi que la FSM veria el 1 de una derrota por tiempo
+    // anterior y se iria directo a PERDIO. Con pulso_fin ya vale 0 desde que la FSM entra al
+    // estado de fin, mucho antes de la siguiente partida.
     always_ff @(posedge clk) begin
         if (rst)
             tiempo_agotado <= 1'b0;
-        else if (start)
+        else if (start || pulso_fin)
             tiempo_agotado <= 1'b0;
         else if (running & zero)
             tiempo_agotado <= 1'b1;
@@ -148,11 +152,14 @@ module temporizador (
             cont_espera <= cont_espera + 1'b1;
     end
 
-    // o_fin_espera: se levanta al tercer tick_1hz de GANO/PERDIO y se mantiene hasta que la
-    // FSM sale de ahi y entra al siguiente estado de fin (pulso_fin de la proxima partida)
+    // o_fin_espera: se levanta al tercer tick_1hz de GANO/PERDIO y se limpia con start, al
+    // arrancar la siguiente partida. Limpiarlo solo con pulso_fin no alcanza, por la misma razon
+    // que tiempo_agotado: en el primer ciclo de GANO/PERDIO de la partida siguiente la FSM veria
+    // todavia el 1 viejo y volveria a SELECCION sin mostrar el resultado. El clear con pulso_fin
+    // queda del diseño anterior, con el de start ya es redundante pero no estorba.
     always_ff @(posedge clk) begin
         if (rst) o_fin_espera <= 1'b0;
-        else if (pulso_fin) o_fin_espera <= 1'b0;
+        else if (pulso_fin || start) o_fin_espera <= 1'b0;
         else if (dec_fin && tick_1hz && cont_espera == ESPERA_S[ESPERA_WIDTH-1:0] - 1)
             o_fin_espera <= 1'b1;
     end

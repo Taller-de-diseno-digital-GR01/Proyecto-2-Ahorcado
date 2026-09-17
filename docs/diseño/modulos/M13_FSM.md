@@ -5,11 +5,15 @@ diagrama de estados que hace las veces de diagrama modular. Este documento arran
 
 ## e) Salidas
 
-- `state`, estado actual del sistema en 3 bits, hacia M02_Generador-Tono, M03_Temporizador,
-  M04_Mostrar-LCD, M05_Estado, M06_Ganadas, M07_Comparador-letra, M08_LFSR, M10_Receptor-UART,
-  M11_Transmisor-UART, M12_Contador-Intentos y REG_Letra-in.
-- `modo`, dificultad seleccionada, 0 para FACIL y 1 para DIFICIL, hacia M03_Temporizador,
+- `o_state[2:0]`, estado actual del sistema en 3 bits, hacia M02_Generador-Tono,
+  M03_Temporizador, M04_Mostrar-LCD, M05_Estado, M06_Ganadas, M07_Comparador-letra, M08_LFSR,
+  M10_Receptor-UART, M11_Transmisor-UART, M12_Contador-Intentos y REG_Letra-in.
+- `o_modo`, dificultad seleccionada, 0 para FACIL y 1 para DIFICIL, hacia M03_Temporizador,
   M04_Mostrar-LCD, M08_LFSR y M11_Transmisor-UART.
+
+En el `.sv` las entradas llevan prefijo `i_` y las salidas `o_` (`i_sel`, `i_ok`, `i_valid_word`,
+`i_palabra_completa`, `i_intentos_agotados`, `i_tiempo_agotado`, `i_fin_espera`). En el resto de
+este documento se nombran sin prefijo para no cargar el texto.
 
 Son las únicas dos salidas del módulo, cuatro bits en total. No hay señales de `start`, `show`,
 `choose`, `count` ni `load` porque la FSM no le ordena nada puntual a ningún módulo.
@@ -22,13 +26,13 @@ Le entregan eventos a la FSM:
 - M08_LFSR, con `valid_word` cuando la palabra de la partida quedó lista en REG_Palabra-escogida.
 - M07_Comparador-letra, con `palabra_completa` cuando su máscara de posiciones reveladas se llenó.
 - M12_Contador-Intentos, con `intentos_agotados` cuando el contador llegó a seis fallos.
-- M03_Temporizador, con `tiempo_agotado` durante la partida y con `fin_espera` cuando ya pasaron
-  los 3 s mínimos mostrando el resultado.
+- M03_Temporizador, con `tiempo_agotado` durante la partida y con `fin_espera` cuando ya pasó la
+  espera mostrando el resultado.
 
 Consumen `state` los once bloques listados en la e). Cada uno decodifica los estados que le
 importan e ignora el resto. M05_Estado lo traduce al LED, M03_Temporizador lo usa para arrancar y
 detener la cuenta, M08_LFSR muestrea al entrar a CARGA, M06_Ganadas incrementa al entrar a GANO,
-M04_Mostrar-LCD elige cuál de las tres pantallas pinta, M11_Transmisor-UART decide cuál trama
+M04_Mostrar-LCD elige cuál de sus pantallas pinta, M11_Transmisor-UART decide cuál trama
 manda, y REG_Letra-in y M10_Receptor-UART lo usan para descartar letras fuera de partida.
 
 Consumen `modo` los cuatro que necesitan saber la dificultad, M03_Temporizador para cargar 60 s o
@@ -63,11 +67,18 @@ letras entran por UART, M07 las compara, M12 cuenta los fallos, M04 repinta el L
 reporta a la PC, todo sin intervención de la FSM. Ella solo vigila tres señales, `palabra_completa`
 para ganar, `intentos_agotados` para perder por fallos, y `tiempo_agotado` para perder por tiempo.
 
-Los tres estados de fin funcionan igual entre sí. Se mantienen mientras M03_Temporizador cuenta los
-3 s que el enunciado exige que el resultado quede en pantalla, y cuando llega `fin_espera` la FSM
-vuelve sola a SELECCION para la siguiente partida. Están separados en GANO, PERDIO_INTENTOS y
-PERDIO_TIEMPO porque el resultado y su causa tienen que salir por UART y por LCD, y teniéndolos
-como estados distintos esa información viaja en el mismo `state` que ya se difunde.
+Los dos estados de fin, GANO y PERDIO, funcionan igual entre sí. Se mantienen mientras
+M03_Temporizador cuenta la espera de resultado en pantalla, y cuando llega `fin_espera` la FSM
+vuelve sola a SELECCION para la siguiente partida.
+
+A PERDIO se llega por cualquiera de las dos derrotas, `intentos_agotados` o `tiempo_agotado`, y
+la FSM no guarda cuál fue. En el primer planteamiento eran dos estados, PERDIO_INTENTOS y
+PERDIO_TIEMPO, para que la causa viajara en `state`. Se juntaron porque ningún consumidor la
+necesita sacar de ahí. M04_Mostrar-LCD muestra un único "PERDISTE", y M11_Transmisor-UART
+distingue la causa por su cuenta con `intentos` de M12_Contador-Intentos, que solo se limpia en
+CARGA y por lo tanto sigue intacto durante PERDIO (seis fallos es derrota por intentos, menos de
+seis es derrota por tiempo). Con un estado menos la FSM y los decodificadores que miran los
+estados de fin quedan más simples.
 
 BTN_RST es un reset físico que llega sincronizado a todos los módulos por igual. Devuelve la FSM a
 SELECCION desde cualquier estado, y en el mismo golpe M06_Ganadas pone su contador acumulado en
@@ -77,23 +88,23 @@ cero, que es lo que pide el enunciado. La FSM no manda ninguna señal para que e
 
 ### Codificación de estados
 
-Seis estados, tres bits, codificación binaria:
+Cinco estados, tres bits, codificación binaria:
 
 - `000` SELECCION
 - `001` CARGA
 - `010` JUEGO
 - `011` GANO
-- `100` PERDIO_INTENTOS
-- `101` PERDIO_TIEMPO
+- `100` PERDIO
 
 Se descartó one-hot aunque sea lo típico para FSM en FPGA. Con one-hot cada módulo decodificaría
 con una sola comparación de bit, que es más barato, pero `state` sale del módulo como puerto hacia
-once bloques, y seis líneas contra tres duplican el ruteo de una señal que ya es la más difundida
-del diseño. Además, al ser puerto, Vivado no puede recodificar el registro por su cuenta, así que
+once bloques, y cinco líneas contra tres casi duplican el ruteo de una señal que ya es la más
+difundida del diseño. Además, al ser puerto, Vivado no puede recodificar el registro por su cuenta, así que
 la codificación queda fija de todas formas y conviene que sea la compacta.
 
-Los códigos `110` y `111` no se usan. El `default` de la lógica combinacional los manda a
-SELECCION, tanto para no dejar estados colgados como para que no se infiera un latch.
+Los códigos `101`, `110` y `111` no se usan. `101` era PERDIO_TIEMPO antes de juntar las dos
+derrotas, y ahora cae en el mismo `default` que los otros dos, que los manda a SELECCION, tanto
+para no dejar estados colgados como para que no se infiera un latch.
 
 ### Tabla de transiciones
 
@@ -108,16 +119,14 @@ van los `if / else if / else` de la implementación:
 | CARGA `001` | `valid_word` | JUEGO `010` | |
 | CARGA `001` | ninguna | CARGA `001` | |
 | JUEGO `010` | `palabra_completa` | GANO `011` | |
-| JUEGO `010` | `intentos_agotados` | PERDIO_INTENTOS `100` | |
-| JUEGO `010` | `tiempo_agotado` | PERDIO_TIEMPO `101` | |
+| JUEGO `010` | `intentos_agotados` | PERDIO `100` | |
+| JUEGO `010` | `tiempo_agotado` | PERDIO `100` | |
 | JUEGO `010` | ninguna | JUEGO `010` | |
 | GANO `011` | `fin_espera` | SELECCION `000` | |
 | GANO `011` | ninguna | GANO `011` | |
-| PERDIO_INTENTOS `100` | `fin_espera` | SELECCION `000` | |
-| PERDIO_INTENTOS `100` | ninguna | PERDIO_INTENTOS `100` | |
-| PERDIO_TIEMPO `101` | `fin_espera` | SELECCION `000` | |
-| PERDIO_TIEMPO `101` | ninguna | PERDIO_TIEMPO `101` | |
-| `110`, `111` | cualquiera | SELECCION `000` | estados no usados |
+| PERDIO `100` | `fin_espera` | SELECCION `000` | |
+| PERDIO `100` | ninguna | PERDIO `100` | |
+| `101`, `110`, `111` | cualquiera | SELECCION `000` | estados no usados |
 
 ### Registro de modo
 
@@ -151,10 +160,14 @@ Después del reset el sistema arranca en FACIL, que es el modo que se muestra pr
 
 ### Prioridades y casos de borde
 
-En SELECCION, `ok` va antes que `sel` por si alguien presiona los dos botones en el mismo ciclo.
-Confirmar es la acción destructiva de las dos, y dejarla de última haría que un `sel` simultáneo
-cambiara la dificultad justo en el ciclo en que se confirma, arrancando la partida con un modo
-distinto al que el jugador vio en el LCD.
+En SELECCION, `ok` y `sel` no compiten entre sí porque actúan sobre registros distintos. `ok`
+decide el estado siguiente y `sel` conmuta `modo`, y la condición de `modo` solo mira que el estado
+actual sea SELECCION, no que `ok` esté en cero. Si los dos pulsos llegaran en el mismo ciclo, la
+FSM pasaría a CARGA y `modo` se conmutaría en ese mismo flanco, así que la partida arrancaría con
+el modo contrario al que mostraba el LCD. En la práctica no pasa. Cada botón pasa por su propio
+filtro de rebote en M09_Botones (unos 10 ms de estabilidad) y su detector de flanco entrega un
+pulso de un solo ciclo de 10 ns, así que que los dos pulsos caigan exactamente en el mismo ciclo
+de reloj es despreciable.
 
 En JUEGO la victoria va de primera. `palabra_completa` y `tiempo_agotado` sí pueden coincidir en un
 mismo ciclo, si la última letra completa la palabra justo cuando la cuenta llega a cero, y ahí gana
@@ -162,9 +175,10 @@ el jugador. `palabra_completa` e `intentos_agotados` no pueden coincidir, porque
 incorrecta nunca revela una posición nueva, así que ese orden entre las dos no cambia nada en la
 práctica y se deja documentado por completitud.
 
-Entre las dos derrotas manda `intentos_agotados`. El enunciado dice que a la sexta letra incorrecta
-la partida se pierde sin importar el tiempo restante, y respetar ese orden hace que la causa
-reportada por UART sea la de intentos cuando ambas ocurren juntas.
+Entre las dos derrotas el orden es indiferente, las dos llevan a PERDIO. En el `.sv` se dejan
+como dos ramas `else if` separadas, primero `intentos_agotados` y luego `tiempo_agotado`, solo para
+que cada condición de la tabla se lea igual en el código. La causa que reporta M11 no sale de
+este orden sino del contador de intentos, como se explicó en la g).
 
 ### Por qué la FSM no espera al LCD ni al UART
 
@@ -175,8 +189,8 @@ perdería, o habría que meterle una cola a la FSM y volverla el bloque más com
 
 Lo que hace M04_Mostrar-LCD es repintar la pantalla que corresponde al `state` que ve en el
 momento en que el LCD queda libre. Si un estado corto pasa antes de que alcance a refrescar,
-simplemente pinta el siguiente, y como cada pantalla se compone completa desde el estado actual,
-nunca queda una mezcla de dos pantallas. El único estado que puede pasar más rápido que un
+simplemente pinta el siguiente, y como cada pantalla se compone completa desde una foto del estado
+tomada al arrancar el envío, nunca queda una mezcla de dos pantallas. El único estado que puede pasar más rápido que un
 refresco del LCD es CARGA, y no tiene pantalla propia.
 
 M11_Transmisor-UART sí ve todos los estados, porque muestrea a 100 MHz y el estado más corto dura
@@ -184,10 +198,17 @@ al menos un ciclo.
 
 ### Duración de los estados de resultado
 
-Los 3 s los cuenta M03_Temporizador y no la FSM. Meter un contador de segundos adentro de la FSM
+La espera la cuenta M03_Temporizador y no la FSM. Meter un contador de segundos adentro de la FSM
 obligaría a duplicar el prescalador de 100 MHz a 1 Hz que M03 ya tiene, y dejaría la FSM con lógica
-de tiempo real, que es justo lo que se quiere sacar de ella. M03 decodifica que `state` está en uno
-de los tres estados de fin, cuenta, y levanta `fin_espera`.
+de tiempo real, que es justo lo que se quiere sacar de ella. M03 decodifica que `state` está en
+GANO o PERDIO, cuenta tres pulsos de su `tick_1hz`, y levanta `fin_espera`. Como ese prescalador
+corre libre, la espera real queda entre 2 y 3 s según en qué punto del segundo se entró al estado
+de fin, el detalle está en `M03_Temporizador.md`.
+
+M03 también se encarga de que `tiempo_agotado` y `fin_espera` valgan 0 en el primer ciclo del
+estado que los consulta, JUEGO y GANO/PERDIO respectivamente. La FSM los lee sin filtrar, así que
+si alguno quedara en 1 de la partida anterior la FSM saltaría de estado en ese primer ciclo. Esa
+garantía es parte del contrato entre los dos módulos y está documentada en la g) de M03.
 
 ### Estructura de la implementación
 
@@ -200,8 +221,9 @@ una máquina de Moore en el sentido más literal, la salida es el estado. `modo`
 aparte de un bit que solo conmuta con `sel` estando en SELECCION, y se congela durante el resto de
 la partida para que nadie pueda cambiar la dificultad a medio juego.
 
-Los anchos van con `localparam` y `$clog2`, siguiendo la convención del resto del proyecto, aunque
-acá el ancho de estado es fijo en 3 bits por el contrato de codificación.
+Los códigos de estado van como `localparam logic [2:0]` con el ancho escrito directo, sin `$clog2`,
+porque acá el ancho no depende de ningún parámetro, está fijo en 3 bits por el contrato de
+codificación.
 
 ## i) Diagrama esquemático detallado del diseño
 
@@ -211,7 +233,7 @@ rombo para comparador, y rectángulo etiquetado para lógica combinacional.
 ```mermaid
 flowchart LR
     IN_OK(["ok"]) --> LSE["LOGICA_SIGUIENTE_ESTADO<br/>combinacional"]
-    IN_SEL(["sel"]) --> LSE
+    IN_SEL(["sel"])
     IN_VW(["valid_word"]) --> LSE
     IN_PC(["palabra_completa"]) --> LSE
     IN_IA(["intentos_agotados"]) --> LSE
@@ -232,8 +254,9 @@ los diagramas del proyecto.
 
 Del diagrama se lee que no hay lógica entre `REG_ESTADO` y la salida `state`, el registro es la
 salida. Toda la combinacional del módulo está en `LOGICA_SIGUIENTE_ESTADO`, que son tres funciones
-booleanas de diez variables (tres de estado actual y siete de evento), y en la compuerta que
-habilita el conmutado de `modo`.
+booleanas de nueve variables (tres de estado actual y seis de evento, `sel` no entra porque no
+cambia el estado), y en la compuerta que habilita el conmutado de `modo`. Esa compuerta no recibe
+`ok`, que es la razón del caso de borde descrito en la h).
 
 Sobre el nivel de detalle que pide el método, un esquemático por compuertas dibujado a mano acá no
 aporta nada. Esas tres funciones las sintetiza Vivado con un puñado de LUT, y el número exacto

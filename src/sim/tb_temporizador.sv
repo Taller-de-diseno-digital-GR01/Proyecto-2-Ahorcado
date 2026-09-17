@@ -140,6 +140,10 @@ module tb_temporizador;
         i_state = ST_GANO;
         @(posedge clk); #1;
         `CHECK_BIT("entrar a GANO: fin_espera arranca en 0", fin_espera, 1'b0)
+        // tiempo_agotado venia en 1 de la seccion 5. Se limpia al entrar al estado de fin, asi
+        // la FSM no lo ve en el primer ciclo de JUEGO de la partida siguiente.
+        @(posedge clk); #1;
+        `CHECK_BIT("GANO: tiempo_agotado se limpia al entrar al estado de fin", tiempo_agotado, 1'b0)
         `ESPERA_TICK
         `CHECK_BIT("GANO: 1er tick_1hz, fin_espera aun en 0", fin_espera, 1'b0)
         `ESPERA_TICK
@@ -147,9 +151,9 @@ module tb_temporizador;
         `ESPERA_TICK
         `CHECK_BIT("GANO: 3er tick_1hz, fin_espera en 1", fin_espera, 1'b1)
 
-        // 7) Salir de GANO sin pasar por otro estado de fin no limpia fin_espera, se queda
-        //    pegado hasta la proxima entrada a un estado de fin, igual que tiempo_agotado
-        //    se queda pegado hasta el proximo start.
+        // 7) Salir de GANO no limpia fin_espera todavia, se queda en 1 en SELECCION/CARGA (la FSM
+        //    lo ignora ahi) y se limpia con el start de la siguiente partida, antes de que la FSM
+        //    pueda volver a un estado de fin.
         i_state = ST_SELECCION;
         @(posedge clk); #1;
         `CHECK_BIT("salir de GANO: fin_espera sigue en 1", fin_espera, 1'b1)
@@ -159,6 +163,7 @@ module tb_temporizador;
         //      en vez de seguir contando en el fondo mientras se muestra el resultado.
         modo = 1'b0;
         `ARRANCA_JUEGO
+        `CHECK_BIT("nueva partida: start limpia el fin_espera de la anterior", fin_espera, 1'b0)
         `ESPERA_TICK
         `ESPERA_TICK
         `CHECK("con tiempo de sobra: tiempo antes de ganar", tiempo, `BCD(58))
@@ -185,11 +190,13 @@ module tb_temporizador;
         @(posedge clk); #1; // ver nota de sincronizacion en la seccion 5
         `CHECK_BIT("fin de cuenta dificil: tiempo_agotado", tiempo_agotado, 1'b1)
 
-        // 10) Esta vez la partida se pierde: PERDIO tambien cuenta sus 3 s de fin_espera, y
-        //     entrar ahi limpia primero el fin_espera pegado desde la ronda de GANO anterior.
+        // 10) Esta vez la partida se pierde: PERDIO tambien cuenta sus 3 s de fin_espera. El
+        //     fin_espera de la ronda de GANO anterior ya lo limpio el start, asi que la FSM lo ve
+        //     en 0 desde el primer ciclo de PERDIO, antes del flanco de entrada.
+        `CHECK_BIT("antes de entrar a PERDIO: fin_espera ya estaba en 0", fin_espera, 1'b0)
         i_state = ST_PERDIO;
         @(posedge clk); #1;
-        `CHECK_BIT("entrar a PERDIO: fin_espera se limpia primero", fin_espera, 1'b0)
+        `CHECK_BIT("entrar a PERDIO: fin_espera sigue en 0", fin_espera, 1'b0)
         `ESPERA_TICK
         `ESPERA_TICK
         `ESPERA_TICK

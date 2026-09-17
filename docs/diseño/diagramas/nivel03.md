@@ -54,11 +54,12 @@ subgraph "FPGA"
         M10-->|letra_in|REG_LI
         M10-->|valid_w|REG_LI
         REG_LI-->|"letra_in, letra_nueva"|M07
-        REG_LI-->|letra_in|M04
         REG_W-->|"word, word_length"|M07
         M07-->|"letra_state, letra_lista, mascara"|M11
         M07-->|palabra_completa|FSM
         M07-->|mascara|M04
+        REG_W-->|"word, word_length"|M04
+        M12-->|intentos|M04
         M12-->|intentos|M11
         M12-->|intentos_agotados|FSM
         REG_W-->|word_length|M11
@@ -94,7 +95,6 @@ subgraph "FPGA"
     end
 
     ARB <-->|"bus 32b"| PERIFERICO_UART
-    CONTROL_JUEGO <-->|"bus 32b"| PERIFERICO_LCD
 
     FSM-->|state|M02
     FSM-->|state|M05
@@ -106,7 +106,7 @@ subgraph "FPGA"
     M08-->|valid_word|FSM
     M03-->|tiempo_agotado|FSM
     M03-->|fin_espera|FSM
-    M03-->|time|M01
+    M03-->|tiempo|M01
     M09-->|sel|FSM
     M09-->|ok|FSM
 
@@ -116,7 +116,7 @@ M01-->|time|7SEG1["7SEG TIEMPO"]
 M01-->|num_win|7SEG2["7SEG GANADAS"]
 M02-->|sound|BUZZER["BUZZER"]
 M05-->|state|LED_S["LED ESTADO"]
-M04-->|word/Modo|PERIFERICO_LCD
+M04 <-->|"bus 32b"| PERIFERICO_LCD
 ```
 
 ### Leyenda de los diagramas modulares
@@ -213,45 +213,62 @@ enunciado.
 
 ```mermaid
 flowchart LR
-    IN_MODO(["modo (de M13_FSM)"]) --> MUX1{{"MUX 2:1<br/>tiempo inicial"}}
-    MUX1 --> REG_T["REG_TIEMPO<br/>registro"]
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>JUEGO / resultado"]
-    DEC_ST -->|carga| REG_T
-    DEC_ST --> REG_EN["REG_ENABLE<br/>registro"]
-    CNT_PRE["CONT_PRESCALER<br/>contador (100MHz→1Hz)"] --> CMP1{"CMP = 0<br/>habilita decremento"}
-    REG_EN --> CMP1
-    CMP1 -->|en| SUB1["SUMADOR<br/>-1 (decrementador)"]
+    IN_STATE(["i_state (de FSM)"]) --> DECJ["FLANCO_JUEGO<br/>start, flanco de entrada a JUEGO"]
+    IN_STATE --> DECFN["DEC_FIN<br/>nivel, en GANO o PERDIO"]
+    IN_STATE --> DECF["FLANCO_FIN<br/>pulso_fin, flanco de entrada a GANO/PERDIO"]
+    DECJ -->|"carga"| REG_T["REG_TIEMPO<br/>2 décadas BCD"]
+    DECJ -->|"enciende"| REG_RUN["REG_RUNNING<br/>registro"]
+    DECFN -->|"apaga running"| REG_RUN
+    DECF -->|"reinicia a 00"| REG_T
+    IN_MODO(["modo (de FSM)"]) --> MUX1{{"MUX 2:1<br/>tiempo inicial 60 / 45"}}
+    MUX1 --> REG_T
+    CNT_PRE["CONT_PRESCALER<br/>27 bits descendente"] --> CMP0{"CMP = 0<br/>tick_1hz"}
+    CMP0 --> AND_EN["AND<br/>cten = running · tick_1hz"]
+    REG_RUN --> AND_EN
+    AND_EN -->|en| SUB1["DECREMENTADOR BCD<br/>con préstamo entre décadas"]
     REG_T --> SUB1
     SUB1 --> REG_T
-    REG_T --> CMP2{"CMP = 0<br/>tiempo agotado"}
-    CMP2 --> OUT_FIN(["tiempo_agotado (a M13_FSM)"])
-    REG_T --> OUT_TIME(["time (a M01)"])
-    DEC_ST --> CNT_3S["CONT_RESULTADO<br/>contador de 3 s"]
-    CNT_PRE --> CNT_3S
-    CNT_3S --> OUT_ESP(["fin_espera (a M13_FSM)"])
+    REG_T --> CMP2{"CMP = 00<br/>zero"}
+    CMP2 -->|"apaga running"| REG_RUN
+    CMP2 --> REG_TA["REG_TIEMPO_AGOTADO<br/>set: running · zero"]
+    REG_RUN --> REG_TA
+    DECJ -->|"limpia"| REG_TA
+    DECF -->|"limpia"| REG_TA
+    REG_TA --> OUT_FIN(["tiempo_agotado (a FSM)"])
+    REG_T --> OUT_TIME(["tiempo (a M01)"])
+    DECF -->|"reinicia"| CNT_ESPERA["CONT_ESPERA<br/>2 bits, satura en 3"]
+    DECFN --> CNT_ESPERA
+    CMP0 --> CNT_ESPERA
+    CNT_ESPERA --> REG_FE["REG_FIN_ESPERA<br/>set: tercer tick en GANO/PERDIO"]
+    DECJ -->|"limpia"| REG_FE
+    DECF -->|"limpia"| REG_FE
+    REG_FE --> OUT_ESPERA(["o_fin_espera (a FSM)"])
 ```
 
 ### c) Objetivo del módulo
 
-Llevar la cuenta regresiva de la partida activa. Arranca sola al ver que `state` entró a JUEGO y
-se detiene al salir, con la duración inicial que le dice `modo`. Entrega el tiempo restante a
-M01_Marcador y avisa a M13_FSM cuando el tiempo se agota (`tiempo_agotado`).
+Llevar la cuenta regresiva de la partida activa. Arranca sola al ver que `state` entró a JUEGO,
+con la duración inicial que le dice `modo`, y se detiene al llegar a cero o al entrar a GANO o
+PERDIO. Entrega el tiempo restante en BCD a M01_Marcador y avisa a M13_FSM cuando el tiempo se
+agota (`tiempo_agotado`).
 
-Es además la única fuente de tiempo real del sistema, así que también le toca contar los 3 s
-mínimos que el resultado tiene que quedarse en pantalla, y avisar con `fin_espera`. Se hace acá y
-no en la FSM para no duplicar un prescalador de 100 MHz a 1 Hz que ya vive en este módulo.
+Es además la única fuente de tiempo real del sistema, así que también le toca contar la espera
+del resultado en pantalla, tres pulsos de su `tick_1hz` en GANO o PERDIO, y avisar con
+`o_fin_espera`. Se hace acá y no en la FSM para no duplicar un prescalador de 100 MHz a 1 Hz que
+ya vive en este módulo.
 
 ### d) Entradas
 
 - `clk`, `rst`.
-- `state`, estado actual, desde M13_FSM, de ahí saca cuándo contar la partida y cuándo los 3 s.
-- `modo`, fácil o difícil, desde M13_FSM, define el tiempo inicial a cargar.
+- `i_state`, estado actual, desde M13_FSM, de ahí saca cuándo contar la partida y cuándo la
+  espera del resultado.
+- `modo`, fácil o difícil, desde M13_FSM, define el tiempo inicial a cargar (60 s o 45 s).
 
 ### e) Salidas
 
 - `tiempo_agotado`, bandera de fin de tiempo de partida, hacia M13_FSM.
-- `fin_espera`, bandera de 3 s cumplidos mostrando resultado, hacia M13_FSM.
-- `time`, tiempo restante de la partida, hacia M01_Marcador.
+- `o_fin_espera`, bandera de espera de resultado cumplida, hacia M13_FSM.
+- `tiempo[7:0]`, tiempo restante de la partida en BCD, hacia M01_Marcador.
 
 ## M04: Mostrar-LCD
 
@@ -259,21 +276,40 @@ no en la FSM para no duplicar un prescalador de 100 MHz a 1 Hz que ya vive en es
 
 ```mermaid
 flowchart LR
-    IN_LETRA(["letra_in (de REG_LI)"]) --> MUX1{{"MUX 3:1<br/>selección / palabra / resultado"}}
-    IN_MODO(["modo (de M13_FSM)"]) --> MUX1
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>pantalla a mostrar"]
-    DEC_ST --> MUX1
-    DEC_ST -->|repintar| REG_MSG["REG_MENSAJE<br/>registro"]
-    MUX1 --> REG_MSG
-    CNT_POS["CONT_POSICION<br/>contador (dirección LCD)"] --> REG_MSG
-    REG_MSG --> OUT_LCD(["word/Modo (a PERIFERICO_LCD)"])
+    IN_STATE(["i_state (de M13_FSM)"]) --> CMP_CAMBIO{"CMP<br/>actual ≠ foto"}
+    IN_MODO(["i_modo (de M13_FSM)"]) --> CMP_CAMBIO
+    IN_MASC(["i_mascara (de M07)"]) --> CMP_CAMBIO
+    IN_INT(["i_intentos (de M12)"]) --> CMP_CAMBIO
+    IN_RD(["i_rdata: busy, done (de PERIFERICO_LCD)"]) --> FSM_LCD
+    CMP_CAMBIO -->|cambio| FSM_LCD["FSM_LCD<br/>IDLE / HOME / SEND / WAIT"]
+    FSM_LCD -->|"captura"| REG_FOTO["REG_FOTO<br/>state, modo, mascara, intentos, last_pos"]
+    IN_STATE --> REG_FOTO
+    IN_MODO --> REG_FOTO
+    IN_MASC --> REG_FOTO
+    IN_INT --> REG_FOTO
+    REG_FOTO --> CMP_CAMBIO
+    FSM_LCD -->|"reinicia / incrementa"| CNT_POS["CONT_POSICION<br/>pos, 4 bits"]
+    CNT_POS --> CMP_FIN{"CMP<br/>pos = last_pos"}
+    REG_FOTO --> CMP_FIN
+    CMP_FIN --> FSM_LCD
+    REG_FOTO --> ROM_TXT["ROM_TEXTO<br/>MODO / GANASTE / PERDISTE"]
+    CNT_POS --> ROM_TXT
+    REG_FOTO --> GEN_JUEGO["PANTALLA_JUEGO<br/>letra o _ , sufijo I:n"]
+    CNT_POS --> GEN_JUEGO
+    IN_WORD(["i_word / i_word_length (de REG_Palabra-escogida)"]) --> GEN_JUEGO
+    ROM_TXT --> MUX1{{"MUX 2:1<br/>texto fijo / juego"}}
+    GEN_JUEGO --> MUX1
+    REG_FOTO --> MUX1
+    MUX1 --> BUS_OUT["LOGICA_BUS<br/>dirección, write_enable, wdata"]
+    FSM_LCD --> BUS_OUT
+    BUS_OUT --> OUT_LCD(["o_addr / o_write_enable / o_wdata (a PERIFERICO_LCD)"])
 ```
 
 ### c) Objetivo del módulo
 
-Controlar lo que se muestra en el LCD. Decodifica `state` para saber cuál de las tres pantallas
-toca, selección de modo, palabra en juego, o resultado final, compone el mensaje con la última
-letra recibida (REG_Letra-in) y el modo actual, y lo manda como `word/Modo` al periférico LCD.
+Controlar lo que se muestra en el LCD. Decodifica `state` para saber cuál pantalla toca,
+selección de modo, palabra en juego, ganó o perdió. Compone el mensaje con `modo`, la palabra
+escogida, `mascara` e `intentos`, y lo escribe carácter por carácter en PERIFERICO_LCD por el bus.
 
 Repinta la pantalla del estado que ve, no una pantalla por cada transición, así que si un estado
 corto pasa antes de que el LCD alcance a refrescar no queda un mensaje a medias, simplemente
@@ -282,15 +318,19 @@ pinta el que sigue.
 ### d) Entradas
 
 - `clk`, `rst`.
-- `state`, estado actual, desde M13_FSM, decide cuál pantalla se pinta.
-- `modo`, desde M13_FSM.
-- `letra_in`, última letra recibida, desde REG_Letra-in.
-- `mascara`, posiciones ya reveladas de la palabra, desde M07_Comparador-letra. Es lo que decide
+- `i_state`, estado actual, desde M13_FSM, decide cuál pantalla se pinta.
+- `i_modo`, desde M13_FSM.
+- `i_word`, `i_word_length`, palabra escogida y su longitud, desde REG_Palabra-escogida. La
+  palabra llega convertida a ASCII por un adaptador en `top.sv`.
+- `i_mascara`, posiciones ya reveladas de la palabra, desde M07_Comparador-letra. Es lo que decide
   cuáles letras se pintan y cuáles quedan como guion bajo.
+- `i_intentos`, fallos acumulados de la partida, desde M12_Contador-Intentos. Se muestran como
+  intentos restantes al final de la pantalla de juego.
+- `i_rdata`, lectura del bus de PERIFERICO_LCD, de donde saca `busy` y `done`.
 
 ### e) Salidas
 
-- `word/Modo`, mensaje compuesto, hacia PERIFERICO_LCD.
+- `o_addr`, `o_write_enable`, `o_wdata`, escrituras de bus hacia PERIFERICO_LCD.
 
 ## M05: Estado
 
@@ -455,12 +495,12 @@ libre todo el tiempo y este módulo lo muestrea al ver que `state` entró a CARG
 
 ```mermaid
 flowchart LR
-    IN_SEL(["BTN_SEL"]) --> DEB1["DEBOUNCER_SEL<br/>contador + registro"]
-    DEB1 --> EDGE1["DETECTOR_FLANCO<br/>flip-flop"]
-    EDGE1 --> OUT_SEL(["sel (a M13_FSM)"])
-    IN_OK(["BTN_OK"]) --> DEB2["DEBOUNCER_OK<br/>contador + registro"]
-    DEB2 --> EDGE2["DETECTOR_FLANCO<br/>flip-flop"]
-    EDGE2 --> OUT_OK(["ok (a M13_FSM)"])
+    IN_SEL(["btn_sel"]) --> DEB1["debounce_sel (debounce.sv)<br/>sincronizador + contador de estabilidad"]
+    DEB1 --> EDGE1["DETECTOR_FLANCO<br/>flip-flop + AND"]
+    EDGE1 --> OUT_SEL(["btn_sel_pulse (a FSM)"])
+    IN_OK(["btn_ok"]) --> DEB2["debounce_ok (debounce.sv)<br/>sincronizador + contador de estabilidad"]
+    DEB2 --> EDGE2["DETECTOR_FLANCO<br/>flip-flop + AND"]
+    EDGE2 --> OUT_OK(["btn_ok_pulse (a FSM)"])
 ```
 
 ### c) Objetivo del módulo
@@ -471,13 +511,13 @@ pulsos limpios `sel` y `ok` directamente a M13_FSM.
 ### d) Entradas
 
 - `clk`, `rst`.
-- `BTN_SEL`, señal cruda del botón de selección.
-- `BTN_OK`, señal cruda del botón de confirmación.
+- `btn_sel`, señal cruda del botón de selección.
+- `btn_ok`, señal cruda del botón de confirmación.
 
 ### e) Salidas
 
-- `sel`, pulso de selección filtrado, hacia M13_FSM.
-- `ok`, pulso de confirmación filtrado, hacia M13_FSM.
+- `btn_sel_pulse`, pulso de selección filtrado, hacia la entrada `sel` de M13_FSM.
+- `btn_ok_pulse`, pulso de confirmación filtrado, hacia la entrada `ok` de M13_FSM.
 
 ## M10: Receptor-UART
 
@@ -652,11 +692,10 @@ stateDiagram-v2
     SELECCION --> CARGA: ok
     CARGA --> JUEGO: valid_word
     JUEGO --> GANO: palabra_completa
-    JUEGO --> PERDIO_INTENTOS: intentos_agotados
-    JUEGO --> PERDIO_TIEMPO: tiempo_agotado
+    JUEGO --> PERDIO: intentos_agotados
+    JUEGO --> PERDIO: tiempo_agotado
     GANO --> SELECCION: fin_espera
-    PERDIO_INTENTOS --> SELECCION: fin_espera
-    PERDIO_TIEMPO --> SELECCION: fin_espera
+    PERDIO --> SELECCION: fin_espera
 ```
 
 Codificación de `state`, tres bits. Es el contrato que decodifican los demás módulos, así que el
@@ -666,8 +705,10 @@ valor de cada estado queda fijo:
 - `001` CARGA, se le pide palabra al banco y se espera `valid_word`.
 - `010` JUEGO, partida activa.
 - `011` GANO, la palabra quedó completa.
-- `100` PERDIO_INTENTOS, se alcanzaron las seis letras incorrectas.
-- `101` PERDIO_TIEMPO, la cuenta regresiva llegó a cero.
+- `100` PERDIO, se alcanzaron las seis letras incorrectas o la cuenta regresiva llegó a cero.
+
+`101`, `110` y `111` no se usan. La FSM no guarda la causa de la derrota, M11_Transmisor-UART la
+deduce del contador de intentos (ver `M13_FSM.md`, g).
 
 `BTN_RST` devuelve la FSM a SELECCION desde cualquier estado, igual que reinicia al resto de los
 módulos, por eso no se dibuja como una transición más del diagrama.
@@ -676,7 +717,7 @@ módulos, por eso no se dibuja como una transición más del diagrama.
 
 Llevar el estado global de la partida y publicarlo para que cada módulo decida por su cuenta qué
 le toca hacer. La FSM no le da órdenes puntuales a nadie, no manda pulsos de `start`, `show`,
-`choose` ni `count`. Solo dice en cuál de los seis estados está el sistema y cuál modo está
+`choose` ni `count`. Solo dice en cuál de los cinco estados está el sistema y cuál modo está
 seleccionado.
 
 Esa es la decisión de diseño central del módulo. Con la FSM mandando, cada módulo nuevo obligaba a
@@ -703,7 +744,7 @@ letra se descarta ahí mismo, sin llegar a M07 ni gastar intento. La FSM ni se e
 - `palabra_completa`, todas las posiciones de la palabra reveladas, desde M07_Comparador-letra.
 - `intentos_agotados`, seis letras incorrectas alcanzadas, desde M12_Contador-Intentos.
 - `tiempo_agotado`, cuenta regresiva en cero, desde M03_Temporizador.
-- `fin_espera`, se cumplieron los 3 s de resultado en pantalla, desde M03_Temporizador.
+- `fin_espera`, se cumplió la espera del resultado en pantalla, desde M03_Temporizador.
 
 ### e) Salidas
 

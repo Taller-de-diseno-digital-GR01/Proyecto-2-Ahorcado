@@ -362,6 +362,8 @@ CONTROL_JUEGO, es lo que le toca al nivel 3.
 
 En este documento se detallan los diagramas de diseño de tercer nivel. Además, se detallan las entradas y salidas de estos módulos y como se buscan conectar entre ellos.
 
+
+
 ## Diagrama de tercer nivel
 
 ```mermaid
@@ -412,11 +414,12 @@ subgraph "FPGA"
         M10-->|letra_in|REG_LI
         M10-->|valid_w|REG_LI
         REG_LI-->|"letra_in, letra_nueva"|M07
-        REG_LI-->|letra_in|M04
         REG_W-->|"word, word_length"|M07
         M07-->|"letra_state, letra_lista, mascara"|M11
         M07-->|palabra_completa|FSM
         M07-->|mascara|M04
+        REG_W-->|"word, word_length"|M04
+        M12-->|intentos|M04
         M12-->|intentos|M11
         M12-->|intentos_agotados|FSM
         REG_W-->|word_length|M11
@@ -452,7 +455,6 @@ subgraph "FPGA"
     end
 
     ARB <-->|"bus 32b"| PERIFERICO_UART
-    CONTROL_JUEGO <-->|"bus 32b"| PERIFERICO_LCD
 
     FSM-->|state|M02
     FSM-->|state|M05
@@ -464,7 +466,7 @@ subgraph "FPGA"
     M08-->|valid_word|FSM
     M03-->|tiempo_agotado|FSM
     M03-->|fin_espera|FSM
-    M03-->|time|M01
+    M03-->|tiempo|M01
     M09-->|sel|FSM
     M09-->|ok|FSM
 
@@ -474,7 +476,7 @@ M01-->|time|7SEG1["7SEG TIEMPO"]
 M01-->|num_win|7SEG2["7SEG GANADAS"]
 M02-->|sound|BUZZER["BUZZER"]
 M05-->|state|LED_S["LED ESTADO"]
-M04-->|word/Modo|PERIFERICO_LCD
+M04 <-->|"bus 32b"| PERIFERICO_LCD
 ```
 
 ### Leyenda de los diagramas modulares
@@ -571,45 +573,62 @@ enunciado.
 
 ```mermaid
 flowchart LR
-    IN_MODO(["modo (de M13_FSM)"]) --> MUX1{{"MUX 2:1<br/>tiempo inicial"}}
-    MUX1 --> REG_T["REG_TIEMPO<br/>registro"]
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>JUEGO / resultado"]
-    DEC_ST -->|carga| REG_T
-    DEC_ST --> REG_EN["REG_ENABLE<br/>registro"]
-    CNT_PRE["CONT_PRESCALER<br/>contador (100MHz→1Hz)"] --> CMP1{"CMP = 0<br/>habilita decremento"}
-    REG_EN --> CMP1
-    CMP1 -->|en| SUB1["SUMADOR<br/>-1 (decrementador)"]
+    IN_STATE(["i_state (de FSM)"]) --> DECJ["FLANCO_JUEGO<br/>start, flanco de entrada a JUEGO"]
+    IN_STATE --> DECFN["DEC_FIN<br/>nivel, en GANO o PERDIO"]
+    IN_STATE --> DECF["FLANCO_FIN<br/>pulso_fin, flanco de entrada a GANO/PERDIO"]
+    DECJ -->|"carga"| REG_T["REG_TIEMPO<br/>2 décadas BCD"]
+    DECJ -->|"enciende"| REG_RUN["REG_RUNNING<br/>registro"]
+    DECFN -->|"apaga running"| REG_RUN
+    DECF -->|"reinicia a 00"| REG_T
+    IN_MODO(["modo (de FSM)"]) --> MUX1{{"MUX 2:1<br/>tiempo inicial 60 / 45"}}
+    MUX1 --> REG_T
+    CNT_PRE["CONT_PRESCALER<br/>27 bits descendente"] --> CMP0{"CMP = 0<br/>tick_1hz"}
+    CMP0 --> AND_EN["AND<br/>cten = running · tick_1hz"]
+    REG_RUN --> AND_EN
+    AND_EN -->|en| SUB1["DECREMENTADOR BCD<br/>con préstamo entre décadas"]
     REG_T --> SUB1
     SUB1 --> REG_T
-    REG_T --> CMP2{"CMP = 0<br/>tiempo agotado"}
-    CMP2 --> OUT_FIN(["tiempo_agotado (a M13_FSM)"])
-    REG_T --> OUT_TIME(["time (a M01)"])
-    DEC_ST --> CNT_3S["CONT_RESULTADO<br/>contador de 3 s"]
-    CNT_PRE --> CNT_3S
-    CNT_3S --> OUT_ESP(["fin_espera (a M13_FSM)"])
+    REG_T --> CMP2{"CMP = 00<br/>zero"}
+    CMP2 -->|"apaga running"| REG_RUN
+    CMP2 --> REG_TA["REG_TIEMPO_AGOTADO<br/>set: running · zero"]
+    REG_RUN --> REG_TA
+    DECJ -->|"limpia"| REG_TA
+    DECF -->|"limpia"| REG_TA
+    REG_TA --> OUT_FIN(["tiempo_agotado (a FSM)"])
+    REG_T --> OUT_TIME(["tiempo (a M01)"])
+    DECF -->|"reinicia"| CNT_ESPERA["CONT_ESPERA<br/>2 bits, satura en 3"]
+    DECFN --> CNT_ESPERA
+    CMP0 --> CNT_ESPERA
+    CNT_ESPERA --> REG_FE["REG_FIN_ESPERA<br/>set: tercer tick en GANO/PERDIO"]
+    DECJ -->|"limpia"| REG_FE
+    DECF -->|"limpia"| REG_FE
+    REG_FE --> OUT_ESPERA(["o_fin_espera (a FSM)"])
 ```
 
 ### c) Objetivo del módulo
 
-Llevar la cuenta regresiva de la partida activa. Arranca sola al ver que `state` entró a JUEGO y
-se detiene al salir, con la duración inicial que le dice `modo`. Entrega el tiempo restante a
-M01_Marcador y avisa a M13_FSM cuando el tiempo se agota (`tiempo_agotado`).
+Llevar la cuenta regresiva de la partida activa. Arranca sola al ver que `state` entró a JUEGO,
+con la duración inicial que le dice `modo`, y se detiene al llegar a cero o al entrar a GANO o
+PERDIO. Entrega el tiempo restante en BCD a M01_Marcador y avisa a M13_FSM cuando el tiempo se
+agota (`tiempo_agotado`).
 
-Es además la única fuente de tiempo real del sistema, así que también le toca contar los 3 s
-mínimos que el resultado tiene que quedarse en pantalla, y avisar con `fin_espera`. Se hace acá y
-no en la FSM para no duplicar un prescalador de 100 MHz a 1 Hz que ya vive en este módulo.
+Es además la única fuente de tiempo real del sistema, así que también le toca contar la espera
+del resultado en pantalla, tres pulsos de su `tick_1hz` en GANO o PERDIO, y avisar con
+`o_fin_espera`. Se hace acá y no en la FSM para no duplicar un prescalador de 100 MHz a 1 Hz que
+ya vive en este módulo.
 
 ### d) Entradas
 
 - `clk`, `rst`.
-- `state`, estado actual, desde M13_FSM, de ahí saca cuándo contar la partida y cuándo los 3 s.
-- `modo`, fácil o difícil, desde M13_FSM, define el tiempo inicial a cargar.
+- `i_state`, estado actual, desde M13_FSM, de ahí saca cuándo contar la partida y cuándo la
+  espera del resultado.
+- `modo`, fácil o difícil, desde M13_FSM, define el tiempo inicial a cargar (60 s o 45 s).
 
 ### e) Salidas
 
 - `tiempo_agotado`, bandera de fin de tiempo de partida, hacia M13_FSM.
-- `fin_espera`, bandera de 3 s cumplidos mostrando resultado, hacia M13_FSM.
-- `time`, tiempo restante de la partida, hacia M01_Marcador.
+- `o_fin_espera`, bandera de espera de resultado cumplida, hacia M13_FSM.
+- `tiempo[7:0]`, tiempo restante de la partida en BCD, hacia M01_Marcador.
 
 ## M04: Mostrar-LCD
 
@@ -617,21 +636,40 @@ no en la FSM para no duplicar un prescalador de 100 MHz a 1 Hz que ya vive en es
 
 ```mermaid
 flowchart LR
-    IN_LETRA(["letra_in (de REG_LI)"]) --> MUX1{{"MUX 3:1<br/>selección / palabra / resultado"}}
-    IN_MODO(["modo (de M13_FSM)"]) --> MUX1
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>pantalla a mostrar"]
-    DEC_ST --> MUX1
-    DEC_ST -->|repintar| REG_MSG["REG_MENSAJE<br/>registro"]
-    MUX1 --> REG_MSG
-    CNT_POS["CONT_POSICION<br/>contador (dirección LCD)"] --> REG_MSG
-    REG_MSG --> OUT_LCD(["word/Modo (a PERIFERICO_LCD)"])
+    IN_STATE(["i_state (de M13_FSM)"]) --> CMP_CAMBIO{"CMP<br/>actual ≠ foto"}
+    IN_MODO(["i_modo (de M13_FSM)"]) --> CMP_CAMBIO
+    IN_MASC(["i_mascara (de M07)"]) --> CMP_CAMBIO
+    IN_INT(["i_intentos (de M12)"]) --> CMP_CAMBIO
+    IN_RD(["i_rdata: busy, done (de PERIFERICO_LCD)"]) --> FSM_LCD
+    CMP_CAMBIO -->|cambio| FSM_LCD["FSM_LCD<br/>IDLE / HOME / SEND / WAIT"]
+    FSM_LCD -->|"captura"| REG_FOTO["REG_FOTO<br/>state, modo, mascara, intentos, last_pos"]
+    IN_STATE --> REG_FOTO
+    IN_MODO --> REG_FOTO
+    IN_MASC --> REG_FOTO
+    IN_INT --> REG_FOTO
+    REG_FOTO --> CMP_CAMBIO
+    FSM_LCD -->|"reinicia / incrementa"| CNT_POS["CONT_POSICION<br/>pos, 4 bits"]
+    CNT_POS --> CMP_FIN{"CMP<br/>pos = last_pos"}
+    REG_FOTO --> CMP_FIN
+    CMP_FIN --> FSM_LCD
+    REG_FOTO --> ROM_TXT["ROM_TEXTO<br/>MODO / GANASTE / PERDISTE"]
+    CNT_POS --> ROM_TXT
+    REG_FOTO --> GEN_JUEGO["PANTALLA_JUEGO<br/>letra o _ , sufijo I:n"]
+    CNT_POS --> GEN_JUEGO
+    IN_WORD(["i_word / i_word_length (de REG_Palabra-escogida)"]) --> GEN_JUEGO
+    ROM_TXT --> MUX1{{"MUX 2:1<br/>texto fijo / juego"}}
+    GEN_JUEGO --> MUX1
+    REG_FOTO --> MUX1
+    MUX1 --> BUS_OUT["LOGICA_BUS<br/>dirección, write_enable, wdata"]
+    FSM_LCD --> BUS_OUT
+    BUS_OUT --> OUT_LCD(["o_addr / o_write_enable / o_wdata (a PERIFERICO_LCD)"])
 ```
 
 ### c) Objetivo del módulo
 
-Controlar lo que se muestra en el LCD. Decodifica `state` para saber cuál de las tres pantallas
-toca, selección de modo, palabra en juego, o resultado final, compone el mensaje con la última
-letra recibida (REG_Letra-in) y el modo actual, y lo manda como `word/Modo` al periférico LCD.
+Controlar lo que se muestra en el LCD. Decodifica `state` para saber cuál pantalla toca,
+selección de modo, palabra en juego, ganó o perdió. Compone el mensaje con `modo`, la palabra
+escogida, `mascara` e `intentos`, y lo escribe carácter por carácter en PERIFERICO_LCD por el bus.
 
 Repinta la pantalla del estado que ve, no una pantalla por cada transición, así que si un estado
 corto pasa antes de que el LCD alcance a refrescar no queda un mensaje a medias, simplemente
@@ -640,15 +678,19 @@ pinta el que sigue.
 ### d) Entradas
 
 - `clk`, `rst`.
-- `state`, estado actual, desde M13_FSM, decide cuál pantalla se pinta.
-- `modo`, desde M13_FSM.
-- `letra_in`, última letra recibida, desde REG_Letra-in.
-- `mascara`, posiciones ya reveladas de la palabra, desde M07_Comparador-letra. Es lo que decide
+- `i_state`, estado actual, desde M13_FSM, decide cuál pantalla se pinta.
+- `i_modo`, desde M13_FSM.
+- `i_word`, `i_word_length`, palabra escogida y su longitud, desde REG_Palabra-escogida. La
+  palabra llega convertida a ASCII por un adaptador en `top.sv`.
+- `i_mascara`, posiciones ya reveladas de la palabra, desde M07_Comparador-letra. Es lo que decide
   cuáles letras se pintan y cuáles quedan como guion bajo.
+- `i_intentos`, fallos acumulados de la partida, desde M12_Contador-Intentos. Se muestran como
+  intentos restantes al final de la pantalla de juego.
+- `i_rdata`, lectura del bus de PERIFERICO_LCD, de donde saca `busy` y `done`.
 
 ### e) Salidas
 
-- `word/Modo`, mensaje compuesto, hacia PERIFERICO_LCD.
+- `o_addr`, `o_write_enable`, `o_wdata`, escrituras de bus hacia PERIFERICO_LCD.
 
 ## M05: Estado
 
@@ -813,12 +855,12 @@ libre todo el tiempo y este módulo lo muestrea al ver que `state` entró a CARG
 
 ```mermaid
 flowchart LR
-    IN_SEL(["BTN_SEL"]) --> DEB1["DEBOUNCER_SEL<br/>contador + registro"]
-    DEB1 --> EDGE1["DETECTOR_FLANCO<br/>flip-flop"]
-    EDGE1 --> OUT_SEL(["sel (a M13_FSM)"])
-    IN_OK(["BTN_OK"]) --> DEB2["DEBOUNCER_OK<br/>contador + registro"]
-    DEB2 --> EDGE2["DETECTOR_FLANCO<br/>flip-flop"]
-    EDGE2 --> OUT_OK(["ok (a M13_FSM)"])
+    IN_SEL(["btn_sel"]) --> DEB1["debounce_sel (debounce.sv)<br/>sincronizador + contador de estabilidad"]
+    DEB1 --> EDGE1["DETECTOR_FLANCO<br/>flip-flop + AND"]
+    EDGE1 --> OUT_SEL(["btn_sel_pulse (a FSM)"])
+    IN_OK(["btn_ok"]) --> DEB2["debounce_ok (debounce.sv)<br/>sincronizador + contador de estabilidad"]
+    DEB2 --> EDGE2["DETECTOR_FLANCO<br/>flip-flop + AND"]
+    EDGE2 --> OUT_OK(["btn_ok_pulse (a FSM)"])
 ```
 
 ### c) Objetivo del módulo
@@ -829,13 +871,13 @@ pulsos limpios `sel` y `ok` directamente a M13_FSM.
 ### d) Entradas
 
 - `clk`, `rst`.
-- `BTN_SEL`, señal cruda del botón de selección.
-- `BTN_OK`, señal cruda del botón de confirmación.
+- `btn_sel`, señal cruda del botón de selección.
+- `btn_ok`, señal cruda del botón de confirmación.
 
 ### e) Salidas
 
-- `sel`, pulso de selección filtrado, hacia M13_FSM.
-- `ok`, pulso de confirmación filtrado, hacia M13_FSM.
+- `btn_sel_pulse`, pulso de selección filtrado, hacia la entrada `sel` de M13_FSM.
+- `btn_ok_pulse`, pulso de confirmación filtrado, hacia la entrada `ok` de M13_FSM.
 
 ## M10: Receptor-UART
 
@@ -1010,11 +1052,10 @@ stateDiagram-v2
     SELECCION --> CARGA: ok
     CARGA --> JUEGO: valid_word
     JUEGO --> GANO: palabra_completa
-    JUEGO --> PERDIO_INTENTOS: intentos_agotados
-    JUEGO --> PERDIO_TIEMPO: tiempo_agotado
+    JUEGO --> PERDIO: intentos_agotados
+    JUEGO --> PERDIO: tiempo_agotado
     GANO --> SELECCION: fin_espera
-    PERDIO_INTENTOS --> SELECCION: fin_espera
-    PERDIO_TIEMPO --> SELECCION: fin_espera
+    PERDIO --> SELECCION: fin_espera
 ```
 
 Codificación de `state`, tres bits. Es el contrato que decodifican los demás módulos, así que el
@@ -1024,8 +1065,10 @@ valor de cada estado queda fijo:
 - `001` CARGA, se le pide palabra al banco y se espera `valid_word`.
 - `010` JUEGO, partida activa.
 - `011` GANO, la palabra quedó completa.
-- `100` PERDIO_INTENTOS, se alcanzaron las seis letras incorrectas.
-- `101` PERDIO_TIEMPO, la cuenta regresiva llegó a cero.
+- `100` PERDIO, se alcanzaron las seis letras incorrectas o la cuenta regresiva llegó a cero.
+
+`101`, `110` y `111` no se usan. La FSM no guarda la causa de la derrota, M11_Transmisor-UART la
+deduce del contador de intentos (ver `M13_FSM.md`, g).
 
 `BTN_RST` devuelve la FSM a SELECCION desde cualquier estado, igual que reinicia al resto de los
 módulos, por eso no se dibuja como una transición más del diagrama.
@@ -1034,7 +1077,7 @@ módulos, por eso no se dibuja como una transición más del diagrama.
 
 Llevar el estado global de la partida y publicarlo para que cada módulo decida por su cuenta qué
 le toca hacer. La FSM no le da órdenes puntuales a nadie, no manda pulsos de `start`, `show`,
-`choose` ni `count`. Solo dice en cuál de los seis estados está el sistema y cuál modo está
+`choose` ni `count`. Solo dice en cuál de los cinco estados está el sistema y cuál modo está
 seleccionado.
 
 Esa es la decisión de diseño central del módulo. Con la FSM mandando, cada módulo nuevo obligaba a
@@ -1061,7 +1104,7 @@ letra se descarta ahí mismo, sin llegar a M07 ni gastar intento. La FSM ni se e
 - `palabra_completa`, todas las posiciones de la palabra reveladas, desde M07_Comparador-letra.
 - `intentos_agotados`, seis letras incorrectas alcanzadas, desde M12_Contador-Intentos.
 - `tiempo_agotado`, cuenta regresiva en cero, desde M03_Temporizador.
-- `fin_espera`, se cumplieron los 3 s de resultado en pantalla, desde M03_Temporizador.
+- `fin_espera`, se cumplió la espera del resultado en pantalla, desde M03_Temporizador.
 
 ### e) Salidas
 
@@ -1070,6 +1113,10 @@ letra se descarta ahí mismo, sin llegar a M07 ni gastar intento. La FSM ni se e
   M11_Transmisor-UART, M12_Contador-Intentos y REG_Letra-in.
 - `modo`, FACIL o DIFICIL, hacia M03_Temporizador, M04_Mostrar-LCD, M08_LFSR y
   M11_Transmisor-UART.
+
+En el `.sv` las entradas llevan prefijo `i_` y las salidas `o_` (`i_sel`, `i_ok`, `i_valid_word`,
+`i_palabra_completa`, `i_intentos_agotados`, `i_tiempo_agotado`, `i_fin_espera`). En el resto de
+este documento se nombran sin prefijo para no cargar el texto.
 
 Son las únicas dos salidas del módulo, cuatro bits en total. No hay señales de `start`, `show`,
 `choose`, `count` ni `load` porque la FSM no le ordena nada puntual a ningún módulo.
@@ -1082,13 +1129,13 @@ Le entregan eventos a la FSM:
 - M08_LFSR, con `valid_word` cuando la palabra de la partida quedó lista en REG_Palabra-escogida.
 - M07_Comparador-letra, con `palabra_completa` cuando su máscara de posiciones reveladas se llenó.
 - M12_Contador-Intentos, con `intentos_agotados` cuando el contador llegó a seis fallos.
-- M03_Temporizador, con `tiempo_agotado` durante la partida y con `fin_espera` cuando ya pasaron
-  los 3 s mínimos mostrando el resultado.
+- M03_Temporizador, con `tiempo_agotado` durante la partida y con `fin_espera` cuando ya pasó la
+  espera mostrando el resultado.
 
 Consumen `state` los once bloques listados en la e). Cada uno decodifica los estados que le
 importan e ignora el resto. M05_Estado lo traduce al LED, M03_Temporizador lo usa para arrancar y
 detener la cuenta, M08_LFSR muestrea al entrar a CARGA, M06_Ganadas incrementa al entrar a GANO,
-M04_Mostrar-LCD elige cuál de las tres pantallas pinta, M11_Transmisor-UART decide cuál trama
+M04_Mostrar-LCD elige cuál de sus pantallas pinta, M11_Transmisor-UART decide cuál trama
 manda, y REG_Letra-in y M10_Receptor-UART lo usan para descartar letras fuera de partida.
 
 Consumen `modo` los cuatro que necesitan saber la dificultad, M03_Temporizador para cargar 60 s o
@@ -1123,11 +1170,18 @@ letras entran por UART, M07 las compara, M12 cuenta los fallos, M04 repinta el L
 reporta a la PC, todo sin intervención de la FSM. Ella solo vigila tres señales, `palabra_completa`
 para ganar, `intentos_agotados` para perder por fallos, y `tiempo_agotado` para perder por tiempo.
 
-Los tres estados de fin funcionan igual entre sí. Se mantienen mientras M03_Temporizador cuenta los
-3 s que el enunciado exige que el resultado quede en pantalla, y cuando llega `fin_espera` la FSM
-vuelve sola a SELECCION para la siguiente partida. Están separados en GANO, PERDIO_INTENTOS y
-PERDIO_TIEMPO porque el resultado y su causa tienen que salir por UART y por LCD, y teniéndolos
-como estados distintos esa información viaja en el mismo `state` que ya se difunde.
+Los dos estados de fin, GANO y PERDIO, funcionan igual entre sí. Se mantienen mientras
+M03_Temporizador cuenta la espera de resultado en pantalla, y cuando llega `fin_espera` la FSM
+vuelve sola a SELECCION para la siguiente partida.
+
+A PERDIO se llega por cualquiera de las dos derrotas, `intentos_agotados` o `tiempo_agotado`, y
+la FSM no guarda cuál fue. En el primer planteamiento eran dos estados, PERDIO_INTENTOS y
+PERDIO_TIEMPO, para que la causa viajara en `state`. Se juntaron porque ningún consumidor la
+necesita sacar de ahí. M04_Mostrar-LCD muestra un único "PERDISTE", y M11_Transmisor-UART
+distingue la causa por su cuenta con `intentos` de M12_Contador-Intentos, que solo se limpia en
+CARGA y por lo tanto sigue intacto durante PERDIO (seis fallos es derrota por intentos, menos de
+seis es derrota por tiempo). Con un estado menos la FSM y los decodificadores que miran los
+estados de fin quedan más simples.
 
 BTN_RST es un reset físico que llega sincronizado a todos los módulos por igual. Devuelve la FSM a
 SELECCION desde cualquier estado, y en el mismo golpe M06_Ganadas pone su contador acumulado en
@@ -1137,23 +1191,23 @@ cero, que es lo que pide el enunciado. La FSM no manda ninguna señal para que e
 
 #### Codificación de estados
 
-Seis estados, tres bits, codificación binaria:
+Cinco estados, tres bits, codificación binaria:
 
 - `000` SELECCION
 - `001` CARGA
 - `010` JUEGO
 - `011` GANO
-- `100` PERDIO_INTENTOS
-- `101` PERDIO_TIEMPO
+- `100` PERDIO
 
 Se descartó one-hot aunque sea lo típico para FSM en FPGA. Con one-hot cada módulo decodificaría
 con una sola comparación de bit, que es más barato, pero `state` sale del módulo como puerto hacia
-once bloques, y seis líneas contra tres duplican el ruteo de una señal que ya es la más difundida
-del diseño. Además, al ser puerto, Vivado no puede recodificar el registro por su cuenta, así que
+once bloques, y cinco líneas contra tres casi duplican el ruteo de una señal que ya es la más
+difundida del diseño. Además, al ser puerto, Vivado no puede recodificar el registro por su cuenta, así que
 la codificación queda fija de todas formas y conviene que sea la compacta.
 
-Los códigos `110` y `111` no se usan. El `default` de la lógica combinacional los manda a
-SELECCION, tanto para no dejar estados colgados como para que no se infiera un latch.
+Los códigos `101`, `110` y `111` no se usan. `101` era PERDIO_TIEMPO antes de juntar las dos
+derrotas, y ahora cae en el mismo `default` que los otros dos, que los manda a SELECCION, tanto
+para no dejar estados colgados como para que no se infiera un latch.
 
 #### Tabla de transiciones
 
@@ -1168,16 +1222,14 @@ van los `if / else if / else` de la implementación:
 | CARGA `001` | `valid_word` | JUEGO `010` | |
 | CARGA `001` | ninguna | CARGA `001` | |
 | JUEGO `010` | `palabra_completa` | GANO `011` | |
-| JUEGO `010` | `intentos_agotados` | PERDIO_INTENTOS `100` | |
-| JUEGO `010` | `tiempo_agotado` | PERDIO_TIEMPO `101` | |
+| JUEGO `010` | `intentos_agotados` | PERDIO `100` | |
+| JUEGO `010` | `tiempo_agotado` | PERDIO `100` | |
 | JUEGO `010` | ninguna | JUEGO `010` | |
 | GANO `011` | `fin_espera` | SELECCION `000` | |
 | GANO `011` | ninguna | GANO `011` | |
-| PERDIO_INTENTOS `100` | `fin_espera` | SELECCION `000` | |
-| PERDIO_INTENTOS `100` | ninguna | PERDIO_INTENTOS `100` | |
-| PERDIO_TIEMPO `101` | `fin_espera` | SELECCION `000` | |
-| PERDIO_TIEMPO `101` | ninguna | PERDIO_TIEMPO `101` | |
-| `110`, `111` | cualquiera | SELECCION `000` | estados no usados |
+| PERDIO `100` | `fin_espera` | SELECCION `000` | |
+| PERDIO `100` | ninguna | PERDIO `100` | |
+| `101`, `110`, `111` | cualquiera | SELECCION `000` | estados no usados |
 
 #### Registro de modo
 
@@ -1211,10 +1263,14 @@ Después del reset el sistema arranca en FACIL, que es el modo que se muestra pr
 
 #### Prioridades y casos de borde
 
-En SELECCION, `ok` va antes que `sel` por si alguien presiona los dos botones en el mismo ciclo.
-Confirmar es la acción destructiva de las dos, y dejarla de última haría que un `sel` simultáneo
-cambiara la dificultad justo en el ciclo en que se confirma, arrancando la partida con un modo
-distinto al que el jugador vio en el LCD.
+En SELECCION, `ok` y `sel` no compiten entre sí porque actúan sobre registros distintos. `ok`
+decide el estado siguiente y `sel` conmuta `modo`, y la condición de `modo` solo mira que el estado
+actual sea SELECCION, no que `ok` esté en cero. Si los dos pulsos llegaran en el mismo ciclo, la
+FSM pasaría a CARGA y `modo` se conmutaría en ese mismo flanco, así que la partida arrancaría con
+el modo contrario al que mostraba el LCD. En la práctica no pasa. Cada botón pasa por su propio
+filtro de rebote en M09_Botones (unos 10 ms de estabilidad) y su detector de flanco entrega un
+pulso de un solo ciclo de 10 ns, así que que los dos pulsos caigan exactamente en el mismo ciclo
+de reloj es despreciable.
 
 En JUEGO la victoria va de primera. `palabra_completa` y `tiempo_agotado` sí pueden coincidir en un
 mismo ciclo, si la última letra completa la palabra justo cuando la cuenta llega a cero, y ahí gana
@@ -1222,9 +1278,10 @@ el jugador. `palabra_completa` e `intentos_agotados` no pueden coincidir, porque
 incorrecta nunca revela una posición nueva, así que ese orden entre las dos no cambia nada en la
 práctica y se deja documentado por completitud.
 
-Entre las dos derrotas manda `intentos_agotados`. El enunciado dice que a la sexta letra incorrecta
-la partida se pierde sin importar el tiempo restante, y respetar ese orden hace que la causa
-reportada por UART sea la de intentos cuando ambas ocurren juntas.
+Entre las dos derrotas el orden es indiferente, las dos llevan a PERDIO. En el `.sv` se dejan
+como dos ramas `else if` separadas, primero `intentos_agotados` y luego `tiempo_agotado`, solo para
+que cada condición de la tabla se lea igual en el código. La causa que reporta M11 no sale de
+este orden sino del contador de intentos, como se explicó en la g).
 
 #### Por qué la FSM no espera al LCD ni al UART
 
@@ -1235,8 +1292,8 @@ perdería, o habría que meterle una cola a la FSM y volverla el bloque más com
 
 Lo que hace M04_Mostrar-LCD es repintar la pantalla que corresponde al `state` que ve en el
 momento en que el LCD queda libre. Si un estado corto pasa antes de que alcance a refrescar,
-simplemente pinta el siguiente, y como cada pantalla se compone completa desde el estado actual,
-nunca queda una mezcla de dos pantallas. El único estado que puede pasar más rápido que un
+simplemente pinta el siguiente, y como cada pantalla se compone completa desde una foto del estado
+tomada al arrancar el envío, nunca queda una mezcla de dos pantallas. El único estado que puede pasar más rápido que un
 refresco del LCD es CARGA, y no tiene pantalla propia.
 
 M11_Transmisor-UART sí ve todos los estados, porque muestrea a 100 MHz y el estado más corto dura
@@ -1244,10 +1301,17 @@ al menos un ciclo.
 
 #### Duración de los estados de resultado
 
-Los 3 s los cuenta M03_Temporizador y no la FSM. Meter un contador de segundos adentro de la FSM
+La espera la cuenta M03_Temporizador y no la FSM. Meter un contador de segundos adentro de la FSM
 obligaría a duplicar el prescalador de 100 MHz a 1 Hz que M03 ya tiene, y dejaría la FSM con lógica
-de tiempo real, que es justo lo que se quiere sacar de ella. M03 decodifica que `state` está en uno
-de los tres estados de fin, cuenta, y levanta `fin_espera`.
+de tiempo real, que es justo lo que se quiere sacar de ella. M03 decodifica que `state` está en
+GANO o PERDIO, cuenta tres pulsos de su `tick_1hz`, y levanta `fin_espera`. Como ese prescalador
+corre libre, la espera real queda entre 2 y 3 s según en qué punto del segundo se entró al estado
+de fin, el detalle está en `M03_Temporizador.md`.
+
+M03 también se encarga de que `tiempo_agotado` y `fin_espera` valgan 0 en el primer ciclo del
+estado que los consulta, JUEGO y GANO/PERDIO respectivamente. La FSM los lee sin filtrar, así que
+si alguno quedara en 1 de la partida anterior la FSM saltaría de estado en ese primer ciclo. Esa
+garantía es parte del contrato entre los dos módulos y está documentada en la g) de M03.
 
 #### Estructura de la implementación
 
@@ -1260,8 +1324,9 @@ una máquina de Moore en el sentido más literal, la salida es el estado. `modo`
 aparte de un bit que solo conmuta con `sel` estando en SELECCION, y se congela durante el resto de
 la partida para que nadie pueda cambiar la dificultad a medio juego.
 
-Los anchos van con `localparam` y `$clog2`, siguiendo la convención del resto del proyecto, aunque
-acá el ancho de estado es fijo en 3 bits por el contrato de codificación.
+Los códigos de estado van como `localparam logic [2:0]` con el ancho escrito directo, sin `$clog2`,
+porque acá el ancho no depende de ningún parámetro, está fijo en 3 bits por el contrato de
+codificación.
 
 ### i) Diagrama esquemático detallado del diseño
 
@@ -1271,7 +1336,7 @@ rombo para comparador, y rectángulo etiquetado para lógica combinacional.
 ```mermaid
 flowchart LR
     IN_OK(["ok"]) --> LSE["LOGICA_SIGUIENTE_ESTADO<br/>combinacional"]
-    IN_SEL(["sel"]) --> LSE
+    IN_SEL(["sel"])
     IN_VW(["valid_word"]) --> LSE
     IN_PC(["palabra_completa"]) --> LSE
     IN_IA(["intentos_agotados"]) --> LSE
@@ -1292,8 +1357,9 @@ los diagramas del proyecto.
 
 Del diagrama se lee que no hay lógica entre `REG_ESTADO` y la salida `state`, el registro es la
 salida. Toda la combinacional del módulo está en `LOGICA_SIGUIENTE_ESTADO`, que son tres funciones
-booleanas de diez variables (tres de estado actual y siete de evento), y en la compuerta que
-habilita el conmutado de `modo`.
+booleanas de nueve variables (tres de estado actual y seis de evento, `sel` no entra porque no
+cambia el estado), y en la compuerta que habilita el conmutado de `modo`. Esa compuerta no recibe
+`ok`, que es la razón del caso de borde descrito en la h).
 
 Sobre el nivel de detalle que pide el método, un esquemático por compuertas dibujado a mano acá no
 aporta nada. Esas tres funciones las sintetiza Vivado con un puñado de LUT, y el número exacto
@@ -1768,113 +1834,299 @@ M03_Temporizador
 
 ```mermaid
 flowchart LR
-    IN_MODO(["modo (de FSM)"]) --> MUX1{{"MUX 2:1<br/>tiempo inicial"}}
-    MUX1 --> REG_T["REG_TIEMPO<br/>registro"]
-    IN_START(["start (de FSM)"]) --> REG_T
-    IN_START --> REG_RUN["REG_RUNNING<br/>registro"]
-    CNT_PRE["CONT_PRESCALER<br/>contador (100MHz→1Hz)"] --> CMP1{"CMP = 0<br/>habilita decremento"}
-    REG_RUN --> CMP1
-    CMP1 -->|en| SUB1["SUMADOR<br/>-1 (decrementador)"]
+    IN_STATE(["i_state (de FSM)"]) --> DECJ["FLANCO_JUEGO<br/>start, flanco de entrada a JUEGO"]
+    IN_STATE --> DECFN["DEC_FIN<br/>nivel, en GANO o PERDIO"]
+    IN_STATE --> DECF["FLANCO_FIN<br/>pulso_fin, flanco de entrada a GANO/PERDIO"]
+    DECJ -->|"carga"| REG_T["REG_TIEMPO<br/>2 décadas BCD"]
+    DECJ -->|"enciende"| REG_RUN["REG_RUNNING<br/>registro"]
+    DECFN -->|"apaga running"| REG_RUN
+    DECF -->|"reinicia a 00"| REG_T
+    IN_MODO(["modo (de FSM)"]) --> MUX1{{"MUX 2:1<br/>tiempo inicial 60 / 45"}}
+    MUX1 --> REG_T
+    CNT_PRE["CONT_PRESCALER<br/>27 bits descendente"] --> CMP0{"CMP = 0<br/>tick_1hz"}
+    CMP0 --> AND_EN["AND<br/>cten = running · tick_1hz"]
+    REG_RUN --> AND_EN
+    AND_EN -->|en| SUB1["DECREMENTADOR BCD<br/>con préstamo entre décadas"]
     REG_T --> SUB1
     SUB1 --> REG_T
-    REG_T --> CMP2{"CMP = 0<br/>tiempo agotado"}
-    CMP2 --> OUT_FIN(["tiempo_agotado (a FSM)"])
+    REG_T --> CMP2{"CMP = 00<br/>zero"}
     CMP2 -->|"apaga running"| REG_RUN
-    REG_T --> OUT_TIME(["time (a M01)"])
+    CMP2 --> REG_TA["REG_TIEMPO_AGOTADO<br/>set: running · zero"]
+    REG_RUN --> REG_TA
+    DECJ -->|"limpia"| REG_TA
+    DECF -->|"limpia"| REG_TA
+    REG_TA --> OUT_FIN(["tiempo_agotado (a FSM)"])
+    REG_T --> OUT_TIME(["tiempo (a M01)"])
+    DECF -->|"reinicia"| CNT_ESPERA["CONT_ESPERA<br/>2 bits, satura en 3"]
+    DECFN --> CNT_ESPERA
+    CMP0 --> CNT_ESPERA
+    CNT_ESPERA --> REG_FE["REG_FIN_ESPERA<br/>set: tercer tick en GANO/PERDIO"]
+    DECJ -->|"limpia"| REG_FE
+    DECF -->|"limpia"| REG_FE
+    REG_FE --> OUT_ESPERA(["o_fin_espera (a FSM)"])
 ```
 
 ## c) Objetivo del módulo
 
-Controla el tiempo disponible para la partida. Al recibir `start`, carga el tiempo inicial según
-el `modo` recibido y arranca la cuenta regresiva; al llegar a cero, avisa a la `FSM` mediante una señal
-`tiempo_agotado` y entrega el tiempo restante en todo momento a `M01_Marcador` para su
+Controla el tiempo disponible para la partida y el tiempo que se muestra el resultado. Al ver que
+`i_state` entró a JUEGO, carga el tiempo inicial según el `modo` recibido y arranca la cuenta
+regresiva. Al llegar a cero, avisa a la `FSM` con `tiempo_agotado`. Al ver que `i_state` entró a
+GANO o a PERDIO, corta la cuenta regresiva de inmediato (la partida ya se resolvió), reinicia el
+tiempo mostrado a 00 y cuenta tres pulsos de 1 Hz para levantar `o_fin_espera`, con lo que la
+`FSM` vuelve a SELECCION. Entrega el tiempo restante en todo momento a `M01_Marcador` para su
 despliegue.
 
 ## d) Entradas
 
 - `clk`, `rst`.
-- `start`: inicia el temporizador desde la `FSM` (carga el tiempo inicial y arranca la cuenta).
-- `modo`: selecciona el modo de operación (fácil/difícil), define el tiempo inicial a cargar.
+- `i_state[2:0]`: estado actual, desde la `FSM`. M03 decodifica la entrada a JUEGO para arrancar
+  la cuenta y la entrada a GANO/PERDIO para arrancar la espera de `o_fin_espera`. No hay un puerto
+  `start` aparte: la `FSM` no manda señales puntuales a ningún módulo (ver `M13_FSM.md`, f), así
+  que M03 se engancha del mismo `state` que ya se difunde, igual que hacen `M08_LFSR` y
+  `M07_Comparador-letra` con la entrada a CARGA.
+- `modo`: selecciona el modo de operación (0 fácil, 1 difícil), define el tiempo inicial a cargar.
+
+El módulo tiene además el `parameter PRESCALER_RECARGA` (27 bits, por defecto `99_999_999`). Es
+`parameter` y no `localparam` para que el testbench lo pueda achicar y simular una cuenta completa
+sin esperar 100 000 000 ciclos por segundo.
 
 ## e) Salidas
 
-- `time`: tiempo restante hacia `M01_Marcador`.
-- `tiempo_agotado`: indica a la `FSM` que terminó el tiempo.
+- `tiempo[7:0]`: tiempo restante en BCD, `{decenas, unidades}`, hacia `M01_Marcador`.
+- `tiempo_agotado`: indica a la `FSM` que la cuenta de la partida llegó a cero.
+- `o_fin_espera`: indica a la `FSM` que ya pasó la espera mostrando el resultado en GANO o PERDIO.
 
 ## f) Explicación de la relación con otros módulos
 
-M03 solo recibe órdenes de la `FSM` (`start`, `modo`) y solo le responde a la `FSM`
-(`tiempo_agotado`); el valor de tiempo en sí (`time`) va aparte hacia `M01_Marcador` para su
+M03 solo recibe `i_state` y `modo` de la `FSM`, y solo le responde a la `FSM` (`tiempo_agotado`,
+`o_fin_espera`). El valor de tiempo en sí (`tiempo`) va aparte hacia `M01_Marcador` para su
 despliegue. No tiene ninguna relación con M02, M04, M11 ni con ningún periférico de bus: vive
 solo, aislado, dentro del subgraph TEMPORIZADOR. Es importante que M03 nunca se conecte con
 M11_Transmisor-UART, porque el enunciado exige explícitamente que el tiempo restante no se
 transmita por UART hacia la PC.
 
+Las dos banderas que le entrega a la `FSM` tienen que valer 0 en el primer ciclo del estado en
+que la `FSM` las consulta, `tiempo_agotado` en JUEGO y `o_fin_espera` en GANO/PERDIO. M03 detecta
+el flanco de entrada en ese mismo primer ciclo, pero sus registros recién cambian al final del
+ciclo, así que no puede limpiarlas "al entrar" al estado que las consulta. Las limpia antes, en
+el flanco de un estado anterior del ciclo de la partida (ver g y h).
+
 ## g) Funcionamiento
 
-Cuenta el tiempo mientras está habilitado (`running`). Al recibir `start`, M03 carga el tiempo
-inicial correspondiente al `modo` recibido y activa `running`. Mientras `running` esté activa,
-un divisor de reloj (prescaler) genera un pulso de 1 Hz que decrementa el tiempo restante en 1
-cada vez. Cuando el contador llega a 0, se levanta `tiempo_agotado`, se apaga `running`
-automáticamente (ya no hay nada que contar) y `tiempo_agotado` se mantiene en alto hasta el
-siguiente `start`.
+Cuenta el tiempo mientras está habilitado (`running`). Al detectar el flanco de entrada a JUEGO
+(`start`), M03 carga el tiempo inicial correspondiente al `modo` recibido y activa `running`.
+Mientras `running` esté activa, cada pulso `tick_1hz` del prescaler decrementa el tiempo
+restante en 1. Cuando el contador llega a 00, se levanta `tiempo_agotado` y se apaga `running`
+automáticamente, ya no hay nada que contar.
+
+`running` también se apaga, sin esperar a que el tiempo llegue a 0, apenas `i_state` entra a GANO
+o a PERDIO: la partida ya se resolvió (palabra completa o sexto fallo) y no tiene sentido seguir
+descontando en el fondo mientras el LCD muestra el resultado. En el mismo flanco de entrada a
+GANO/PERDIO (`pulso_fin`) el tiempo mostrado se reinicia a 00, no se congela en el valor que
+tenía, así que el jugador ve el resultado sin un número residual de la partida.
+
+Por separado, en ese mismo `pulso_fin` M03 reinicia un segundo contador, `cont_espera`, que
+cuenta los `tick_1hz` mientras el estado siga en GANO o PERDIO. Al tercer pulso levanta
+`o_fin_espera`, y la `FSM` vuelve a SELECCION. El prescaler es uno solo y corre libre sin depender
+del estado de la FSM, así que sirve para las dos cuentas a la vez.
+
+Ciclo de vida de las dos banderas a lo largo de una partida:
+
+| Evento | `tiempo_agotado` | `o_fin_espera` |
+|---|---|---|
+| `rst` | 0 | 0 |
+| entrada a JUEGO (`start`) | 0 | 0 |
+| tiempo llega a 00 corriendo | 1 | sin cambio |
+| entrada a GANO/PERDIO (`pulso_fin`) | 0 | 0 |
+| tercer `tick_1hz` en GANO/PERDIO | sin cambio | 1 |
+| vuelta a SELECCION, CARGA | sin cambio (0) | sin cambio (1) |
+
+`tiempo_agotado` se limpia en `pulso_fin`, así que ya vale 0 mucho antes de la siguiente entrada a
+JUEGO. `o_fin_espera` se queda en 1 durante SELECCION y CARGA, donde la `FSM` no lo consulta, y se
+limpia en el `start` de la partida siguiente, mucho antes de que la `FSM` pueda volver a un estado
+de fin.
+
+En la primera versión cada bandera se limpiaba solo en el flanco del estado que la consulta,
+`tiempo_agotado` con `start` y `o_fin_espera` con `pulso_fin`. Eso funcionaba en la primera
+partida después del reset, pero no en las siguientes. El registro recién baja al final del
+primer ciclo del estado nuevo, y en ese ciclo la `FSM` todavía veía el 1 de la partida anterior.
+Con `o_fin_espera`, desde la segunda partida GANO/PERDIO duraba un solo ciclo y el resultado no
+se alcanzaba a ver. Con `tiempo_agotado`, después de perder por tiempo, la siguiente partida
+pasaba de JUEGO a PERDIO en un ciclo, sin dejar jugar. Se encontró simulando `fsm.sv` y
+`temporizador.sv` juntos durante varias partidas seguidas.
+
+### Duraciones reales
+
+El prescaler corre libre, así que la entrada a JUEGO o a GANO/PERDIO cae en un punto cualquiera
+del segundo en curso, y el primer `tick_1hz` llega entre 1 ciclo y 1 s después. Por eso:
+
+- La partida dura entre 59 y 60 s en fácil y entre 44 y 45 s en difícil. El display sí arranca
+  mostrando 60 o 45.
+- La espera en GANO/PERDIO dura entre 2 y 3 s, tres ticks donde el primero puede llegar casi de
+  inmediato.
 
 ## h) Diseño
 
 El tiempo restante se maneja en BCD (dos dígitos, decenas y unidades) en vez de binario puro,
 para conectarlo directo al decodificador BCD→7 segmentos de M01_Marcador sin necesitar un
-divisor por 10 adicional; el costo es usar dos contadores en cascada en vez de uno binario de 7
+divisor por 10 adicional. El costo es usar dos contadores en cascada en vez de uno binario de 7
 bits.
 
-Como no existe una entrada `detener`, la bandera `running` se apaga sola cuando el contador
-llega a cero, en vez de por una señal externa. Tabla de verdad de `running` (entradas `start`,
-`running` actual y `zero` = "el contador de tiempo ya está en 0"; salida `running_next`):
+### Detección de flancos de estado
 
-| start | running | zero | running_next |
-|---|---|---|---|
-| 0 | 0 | 0 | 0 |
-| 0 | 0 | 1 | 0 |
-| 0 | 1 | 0 | 1 |
-| 0 | 1 | 1 | 0 |
-| 1 | 0 | 0 | 1 |
-| 1 | 0 | 1 | 1 |
-| 1 | 1 | 0 | 1 |
-| 1 | 1 | 1 | 1 |
+`start` es la señal interna `dec_juego & ~dec_juego_prev`, con `dec_juego = (i_state == JUEGO)`
+y `dec_juego_prev` un flip-flop D del ciclo anterior, el mismo par registro-comparador que usa
+`M11_Transmisor-UART` para sus propios pulsos de disparo. `dec_fin` es el nivel
+`(i_state == GANO) || (i_state == PERDIO)`, y `pulso_fin = dec_fin & ~dec_fin_prev` su flanco de
+subida.
 
-El habilitador de conteo de los contadores BCD es `CTEN = running · tick_1Hz`.
+### REG_RUNNING
 
-El `tick_1Hz` se genera con un contador binario de 27 bits que cuenta en modo descendente,
-cargado con el valor `100 000 000 − 1` a 100 MHz; se usa la salida de acarreo/borrow (Ripple
-Carry Output) de la última etapa como el propio pulso de un ciclo, evitando así un comparador de
-27 bits.
+Como no existe una entrada `detener`, la bandera `running` se apaga sola cuando el contador llega
+a cero o cuando `i_state` está en GANO/PERDIO. `start` tiene prioridad total, y si no está en alto
+`running_next = running AND NOT zero AND NOT dec_fin`:
 
-El multiplexor de valor inicial (`modo` → tiempo de arranque) selecciona entre dos constantes
-fijas (por definir en equipo, p. ej. 90 s para fácil y 60 s para difícil).
+| start | running | zero | dec_fin | running_next |
+|---|---|---|---|---|
+| 1 | X | X | X | 1 |
+| 0 | 0 | X | X | 0 |
+| 0 | 1 | 0 | 0 | 1 |
+| 0 | 1 | 1 | X | 0 |
+| 0 | 1 | X | 1 | 0 |
+
+`running_next = start + running · zero' · dec_fin'`.
+
+### CONT_PRESCALER
+
+El `tick_1hz` se genera con un contador binario de 27 bits que cuenta en modo descendente desde
+`PRESCALER_RECARGA = 99_999_999`. Cuando llega a 0, `tick_1hz = (prescaler_cnt == 0)` vale 1
+durante ese ciclo y el contador se recarga, así que el periodo es exactamente 100 000 000 ciclos,
+1 s a 100 MHz. El comparador contra 0 es un NOR de reducción de 27 bits, que en la FPGA se
+resuelve con un par de LUT en cascada. Corre libre desde el reset, sin reiniciarse con la entrada
+a JUEGO ni con la entrada a GANO/PERDIO, así que las dos cuentas comparten el mismo `tick_1hz`
+sin estorbarse.
+
+### REG_TIEMPO y decrementador BCD
+
+El multiplexor de valor inicial selecciona entre dos constantes fijas en BCD, `6 0` para fácil y
+`4 5` para difícil (ver `M13_FSM.md`). El habilitador de conteo es `cten = running · tick_1hz`, y
+`zero = (tiempo_dec == 0) · (tiempo_uni == 0)`. Tabla de prioridad del registro:
+
+| Condición (prioridad descendente) | `tiempo_dec'` | `tiempo_uni'` |
+|---|---|---|
+| `rst` | 0 | 0 |
+| `start` | inicial según `modo` | inicial según `modo` |
+| `pulso_fin` | 0 | 0 |
+| `cten · zero'` y `tiempo_uni = 0` | `tiempo_dec - 1` | 9 |
+| `cten · zero'` y `tiempo_uni ≠ 0` | `tiempo_dec` | `tiempo_uni - 1` |
+| resto | `tiempo_dec` | `tiempo_uni` |
+
+El `zero'` en la condición de decremento evita que la cuenta dé la vuelta a 99 en el mismo ciclo
+en que llega a 00, antes de que `running` alcance a apagarse. `start` y `pulso_fin` nunca
+coinciden, porque `dec_juego` y `dec_fin` son estados mutuamente excluyentes de la FSM.
+
+### REG_TIEMPO_AGOTADO
+
+| Condición (prioridad descendente) | `tiempo_agotado'` |
+|---|---|
+| `rst` | 0 |
+| `start + pulso_fin` | 0 |
+| `running · zero` | 1 |
+| resto | `tiempo_agotado` |
+
+Se levanta con `running · zero` y no con `zero` solo, porque después del reset el tiempo vale 00 y
+la bandera quedaría en un falso "agotado" antes de cualquier partida. El clear con `pulso_fin` es
+el que evita que la `FSM` vea el 1 viejo en el primer ciclo de JUEGO de la partida siguiente (ver
+g). El de `start` quedó del diseño anterior y ahora es redundante, pero no estorba.
+
+### CONT_ESPERA y REG_FIN_ESPERA
+
+`fin_espera` cuenta pulsos en vez de comparar contra cero. `cont_espera` es un registro de
+`$clog2(ESPERA_S + 1) = 2` bits, con `ESPERA_S = 3`:
+
+| Condición (prioridad descendente) | `cont_espera'` |
+|---|---|
+| `rst + pulso_fin` | 0 |
+| `dec_fin · tick_1hz · (cont_espera ≠ 3)` | `cont_espera + 1` |
+| resto | `cont_espera` |
+
+Satura en 3 para no dar la vuelta si la FSM tardara en consumir `o_fin_espera`.
+
+| Condición (prioridad descendente) | `o_fin_espera'` |
+|---|---|
+| `rst` | 0 |
+| `pulso_fin + start` | 0 |
+| `dec_fin · tick_1hz · (cont_espera = 2)` | 1 |
+| resto | `o_fin_espera` |
+
+La bandera sube en el mismo ciclo en que `cont_espera` pasa de 2 a 3, o sea con el tercer tick.
+El clear con `start` es el que evita que la `FSM` vea el 1 viejo en el primer ciclo de GANO/PERDIO
+de la partida siguiente (ver g). El de `pulso_fin` quedó del diseño anterior y ahora es
+redundante, pero no estorba.
 
 ## i) Diagrama esquemático detallado (por compuertas lógicas)
 
 ```mermaid
 flowchart LR
-    ZERO(["zero<br/>(tiempo = 0, 8 bits BCD)"]) --> NOT1["NOT"]
-    RUNQ["running (Q)"] --> AND1["AND2"]
+    STATEIN(["i_state"]) --> DECJ["comparador<br/>dec_juego = JUEGO"]
+    DECJ --> DJP["D-FF<br/>dec_juego_prev"]
+    CLK1(["clk"]) --> DJP
+    DECJ --> ANDJ["AND (prev invertido)"]
+    DJP --> ANDJ
+    ANDJ --> START(["start"])
+
+    STATEIN --> DECF["comparador<br/>dec_fin = GANO o PERDIO"]
+    DECF --> DFP["D-FF<br/>dec_fin_prev"]
+    CLK1 --> DFP
+    DECF --> ANDF["AND (prev invertido)"]
+    DFP --> ANDF
+    ANDF --> PULSOFIN(["pulso_fin"])
+
+    ZERO(["zero<br/>(tiempo = 00, NOR8)"]) --> NOT1["NOT"]
+    DECF --> NOT2["NOT"]
+    RUNQ["running (Q)"] --> AND1["AND3"]
     NOT1 --> AND1
+    NOT2 --> AND1
     AND1 --> OR1["OR2"]
-    START(["start"]) --> OR1
+    START --> OR1
     OR1 --> D1["D-FF<br/>running"]
-    CLK1(["clk"]) --> D1
+    CLK1 --> D1
     D1 --> RUNQ
 
-    T0(["tiempo = 0<br/>(8 bits BCD)"]) --> NOR1["NOR8<br/>(reducción)"]
-    NOR1 --> D2["D-FF<br/>tiempo_agotado"]
-    START --> RST2["clear"]
-    RST2 --> D2
+    PRE(["prescaler_cnt<br/>27 bits"]) --> NOR27["NOR27<br/>(reducción)"]
+    NOR27 --> TICK1HZ(["tick_1hz"])
+
+    RUNQ --> ANDTA["AND2<br/>running · zero"]
+    ZERO --> ANDTA
+    START --> ORTA["OR2<br/>clear"]
+    PULSOFIN --> ORTA
+    ANDTA -->|set| D2["D-FF<br/>tiempo_agotado"]
+    ORTA -->|clear| D2
     CLK1 --> D2
     D2 --> OUTFIN(["tiempo_agotado"])
+
+    PULSOFIN --> CE_RST["clear"]
+    TICK1HZ --> CE_EN["AND<br/>dec_fin · tick_1hz"]
+    DECF --> CE_EN
+    CE_EN --> CE_CNT["CONT_ESPERA<br/>2 bits, satura en 3"]
+    CE_RST --> CE_CNT
+    CLK1 --> CE_CNT
+    CE_CNT --> CE_CMP{"CMP = 2"}
+    CE_CMP --> CE_SET["AND<br/>set"]
+    CE_EN --> CE_SET
+    START --> ORFE["OR2<br/>clear"]
+    PULSOFIN --> ORFE
+    CE_SET -->|set| CE_D["D-FF<br/>fin_espera"]
+    ORFE -->|clear| CE_D
+    CLK1 --> CE_D
+    CE_D --> OUTESPERA(["o_fin_espera"])
 ```
 
 `NOR8` representa la compuerta de reducción que detecta "todo el registro de tiempo en 0"
-(8 bits de las dos décadas BCD, la misma señal `zero` usada arriba); en la implementación real
-es un árbol de compuertas NOR/OR de 2-3 entradas en cascada, no una sola compuerta de 8 entradas.
+(8 bits de las dos décadas BCD, la señal `zero`), y `NOR27` la que genera `tick_1hz` a partir del
+prescaler. En la implementación real las dos son árboles de compuertas de pocas entradas en
+cascada, no una sola compuerta de 8 o 27 entradas. El decrementador BCD de `REG_TIEMPO` no se
+dibuja por compuertas, está descrito por su tabla en la h).
 
 ---
 
@@ -1884,81 +2136,256 @@ es un árbol de compuertas NOR/OR de 2-3 entradas en cascada, no una sola compue
 
 M04_Mostrar-LCD
 
+## Cambios respecto al diseño original
+
+Esta versión reemplaza el diseño original (`show` como pulso de la `FSM` principal, mux 2:1) por
+la arquitectura de nivel 3: `M13_FSM` ya no manda órdenes puntuales, solo difunde `state` (3 bits)
+y `modo`. M04 decodifica `state` por su cuenta para saber cuál de las cuatro pantallas pintar
+(selección, palabra en juego, ganó, perdió) y dispara su propio redibujado. Se mantienen la FSM
+interna de 4 estados (IDLE/HOME/SEND/WAIT) y el protocolo de bus byte a byte del diseño original.
+
+Cambios en los puertos respecto a ese diseño:
+
+- Se quitó `letra_in` y se agregaron `word`/`word_length`, del mismo origen que ya consultan
+  `M07_Comparador-letra` y `M11_Transmisor-UART`: `REG_Palabra-escogida`. Redibujar la palabra con
+  varias letras ya reveladas requiere la palabra secreta entera, no solo la última letra
+  recibida. Con `mascara` (bitmap de posiciones reveladas, sin identidad de letra) y `letra_in` no
+  alcanza para pintar, por ejemplo, dos letras distintas reveladas en posiciones distintas.
+- Se agregó `intentos`, desde `M12_Contador-Intentos`, para mostrar en la pantalla de juego los
+  intentos que le quedan al jugador.
+- La salida abstracta `word/Modo` se concretó en la interfaz de bus de `PERIFERICO_LCD`
+  (`o_addr`, `o_write_enable`, `o_wdata`, `i_rdata`).
+
+Y en las pantallas: como `M13_FSM` juntó PERDIO_INTENTOS y PERDIO_TIEMPO en un solo PERDIO, el LCD
+ya no puede distinguir la causa y muestra un único "PERDISTE". La causa la reporta
+`M11_Transmisor-UART` a la PC.
+
 ## b) Diagrama modular
 
 ```mermaid
 flowchart LR
-    IN_LETRA(["letra_in (de REG_LI)"]) --> MUX1{{"MUX 2:1<br/>letra / texto modo"}}
-    IN_MODO(["modo (de FSM)"]) --> MUX1
-    IN_SHOW(["show (de FSM)"]) --> MUX1
-    MUX1 --> REG_MSG["REG_MENSAJE<br/>registro"]
-    CNT_POS["CONT_POSICION<br/>contador (dirección LCD)"] --> REG_MSG
-    REG_MSG --> OUT_LCD(["word/Modo (a PERIFERICO_LCD)"])
+    IN_STATE(["i_state (de M13_FSM)"]) --> CMP_CAMBIO{"CMP<br/>actual ≠ foto"}
+    IN_MODO(["i_modo (de M13_FSM)"]) --> CMP_CAMBIO
+    IN_MASC(["i_mascara (de M07)"]) --> CMP_CAMBIO
+    IN_INT(["i_intentos (de M12)"]) --> CMP_CAMBIO
+    IN_RD(["i_rdata: busy, done (de PERIFERICO_LCD)"]) --> FSM_LCD
+    CMP_CAMBIO -->|cambio| FSM_LCD["FSM_LCD<br/>IDLE / HOME / SEND / WAIT"]
+    FSM_LCD -->|"captura"| REG_FOTO["REG_FOTO<br/>state, modo, mascara, intentos, last_pos"]
+    IN_STATE --> REG_FOTO
+    IN_MODO --> REG_FOTO
+    IN_MASC --> REG_FOTO
+    IN_INT --> REG_FOTO
+    REG_FOTO --> CMP_CAMBIO
+    FSM_LCD -->|"reinicia / incrementa"| CNT_POS["CONT_POSICION<br/>pos, 4 bits"]
+    CNT_POS --> CMP_FIN{"CMP<br/>pos = last_pos"}
+    REG_FOTO --> CMP_FIN
+    CMP_FIN --> FSM_LCD
+    REG_FOTO --> ROM_TXT["ROM_TEXTO<br/>MODO / GANASTE / PERDISTE"]
+    CNT_POS --> ROM_TXT
+    REG_FOTO --> GEN_JUEGO["PANTALLA_JUEGO<br/>letra o _ , sufijo I:n"]
+    CNT_POS --> GEN_JUEGO
+    IN_WORD(["i_word / i_word_length (de REG_Palabra-escogida)"]) --> GEN_JUEGO
+    ROM_TXT --> MUX1{{"MUX 2:1<br/>texto fijo / juego"}}
+    GEN_JUEGO --> MUX1
+    REG_FOTO --> MUX1
+    MUX1 --> BUS_OUT["LOGICA_BUS<br/>dirección, write_enable, wdata"]
+    FSM_LCD --> BUS_OUT
+    BUS_OUT --> OUT_LCD(["o_addr / o_write_enable / o_wdata (a PERIFERICO_LCD)"])
 ```
 
 ## c) Objetivo del módulo
 
-Prepara la información del juego que debe mostrarse en el periférico LCD: cuando la `FSM` lo
-ordena (`show`), compone el mensaje a partir de la última letra recibida (`REG_Letra-in`) y del
-`modo` actual, y lo envía como `word/Modo` al periférico LCD.
+Prepara la información del juego que debe mostrarse en el LCD y se la entrega al periférico LCD
+por el bus. Decodifica `state` para saber cuál pantalla toca (selección de modo, palabra en juego,
+ganó, perdió), compone el mensaje a partir de `modo`, `mascara`, `intentos` y la palabra escogida
+(`word`, `word_length`), y lo escribe carácter por carácter en `PERIFERICO_LCD`.
 
 ## d) Entradas
 
 - `clk`, `rst`.
-- `show`: orden de actualización desde la `FSM`.
-- `modo`: modo actual del juego desde la `FSM`.
-- `letra_in`: letra recibida desde `REG_Letra-in`.
+- `i_state[2:0]`: estado actual del juego, desde `M13_FSM`. Decide cuál pantalla se pinta y
+  dispara el redibujado al cambiar.
+- `i_modo`: modo actual del juego, desde `M13_FSM`. 0 FACIL, 1 DIFICIL.
+- `i_word[95:0]`: palabra escogida, 12 letras en ASCII empacadas, la letra 0 en los bits bajos
+  (`i_word[pos*8 +: 8]`). `REG_Palabra-escogida` guarda cada letra como código de 5 bits (0 a 25),
+  así que en `top.sv` hay un adaptador combinacional que suma `8'h41` a cada código antes de
+  entrar a M04.
+- `i_word_length[3:0]`: cuántas posiciones de `i_word` son válidas, `word[63:60]` de
+  `REG_Palabra-escogida`.
+- `i_mascara[11:0]`: posiciones ya reveladas de la palabra, desde `M07_Comparador-letra`. Decide
+  cuáles posiciones de `i_word` se pintan y cuáles quedan como guion bajo.
+- `i_intentos[2:0]`: fallos acumulados de la partida (0 a 6), desde `M12_Contador-Intentos`.
+- `i_rdata[31:0]`: lectura del bus de `PERIFERICO_LCD` en la dirección que M04 está poniendo en
+  `o_addr`. De ahí saca `busy` y `done`.
 
 ## e) Salidas
 
-- `word/Modo`: datos y comandos enviados a `PERIFERICO_LCD`.
+- `o_addr[1:0]`: dirección del registro de `PERIFERICO_LCD` que se escribe o se lee.
+- `o_write_enable`: habilita la escritura en ese ciclo.
+- `o_wdata[31:0]`: dato o comando escrito en `PERIFERICO_LCD`.
 
 ## f) Explicación de la relación con otros módulos
 
-La `FSM` (principal) controla cuándo actualizar la pantalla (`show`) y qué modo mostrar (`modo`). M04 lee la
-última letra recibida desde `REG_Letra-in`, cargado por `M10_Receptor-UART` bajo orden de la
-FSM. La salida no llega directo al LCD: se entrega a `PERIFERICO_LCD` a través del mismo bus de
-32 bits que `CONTROL_JUEGO` comparte con `PERIFERICO_UART`, es decir M04 escribe en los
-registros `REG_DATOS` y `REG_CTRL_ESTADO` y lee de vuelta los bits `busy`/`done` para
-sincronizarse con el HD44780 del PmodCLP. No tiene relación directa con M01, M02, M05, M06, M08,
-M09 ni M12: su única "clientela" es el LCD físico.
+`M13_FSM` solo difunde `state` y `modo`, y M04 decodifica `state` por su cuenta para saber cuál
+pantalla pintar, sin que la FSM le ordene nada puntual. `M07_Comparador-letra` le entrega
+`mascara`, `M12_Contador-Intentos` le entrega `intentos`, y `REG_Palabra-escogida` le entrega
+`word`/`word_length` (pasando por el adaptador a ASCII de `top.sv`), todos necesarios para
+componer la pantalla de juego.
+
+La salida no llega directo al LCD. M04 es el maestro del bus de 32 bits de `PERIFERICO_LCD`:
+escribe en `REG_CTRL_ESTADO` y `REG_DATOS`, y lee de vuelta los bits `busy` y `done` para
+sincronizarse con el HD44780 del PmodCLP. El mapa que usa, y que coincide con `periferico_lcd.sv`:
+
+| Dirección | Registro | Bits |
+|---|---|---|
+| `00` | `REG_CTRL_ESTADO` | escritura: bit 0 `start` (W1P), bit 1 `rs`, bit 2 `clear` (W1P), bit 3 `home` (W1P); lectura: bit 8 `busy`, bit 9 `done` (pulso de un ciclo) |
+| `01` | `REG_DATOS` | bits 7:0, carácter a escribir |
+
+No tiene relación directa con M01, M02, M05, M06, M08, M09, M10 ni M11: además de la FSM, M07, M12
+y `REG_Palabra-escogida`, su única otra conexión es el periférico LCD.
 
 ## g) Funcionamiento
 
-Construye la secuencia de datos que representa la palabra, la letra y el modo actual, y la
-envía al LCD cuando `show` lo solicita. En el fondo, M04 es una pequeño FSM que traduce una orden de un solo pulso (`show`) en una ráfaga de
-transacciones de bus hacia `PERIFERICO_LCD`. Al llegar `show`, primero pulsa `home`/`clear` en
-`REG_CTRL_ESTADO` para posicionar el cursor; luego, byte por byte, escribe cada carácter del
-mensaje en `REG_DATOS` y pulsa `start` con `rs=1` (dato, no comando); después de cada byte
-espera a que `done` se levante antes de enviar el siguiente. El mensaje
-depende del contexto: en selección de modo es un texto fijo ("MODO: FACIL"/"MODO: DIFICIL"); en
-partida, es la letra recién recibida superpuesta sobre la palabra en curso.
+M04 es una pequeña FSM que traduce cada cambio de lo que hay que mostrar en una ráfaga de
+transacciones de bus hacia `PERIFERICO_LCD`. Al detectar el cambio, primero escribe `clear` y
+`home` a la vez en `REG_CTRL_ESTADO`, para borrar lo que haya quedado de un mensaje anterior más
+largo y llevar el cursor al inicio, y espera el `done` de ese comando. Luego, carácter por
+carácter, escribe el byte en `REG_DATOS`, pulsa `start` con `rs=1` (dato, no comando) y espera
+`done` antes de pasar al siguiente.
+
+Pantallas, todas en la primera línea de 16 caracteres del LCD:
+
+| `state` | Mensaje | Largo |
+|---|---|---|
+| SELECCION, `modo=0` | `MODO: FACIL` | 11 |
+| SELECCION, `modo=1` | `MODO: DIFICIL` | 13 |
+| CARGA | no tiene pantalla propia, se queda la de selección | — |
+| JUEGO | palabra en 0..11 más ` I:n` en 12..15 | 16 |
+| GANO | `GANASTE` | 7 |
+| PERDIO | `PERDISTE` | 8 |
+
+En la pantalla de juego, cada posición `p < word_length` muestra la letra si `mascara[p]=1` o `_`
+si no. Las posiciones de `word_length` a 11 van en blanco, y las cuatro últimas llevan un sufijo
+fijo con los intentos restantes, `" I:"` y un dígito de `6` a `0`. El sufijo va siempre en 12..15
+sin importar el largo de la palabra, que es de 12 letras como máximo, así que nunca se pisan. Por
+ejemplo, con la palabra `CASA`, la `A` revelada y un fallo: `_A_A         I:5`.
+
+El disparo de redibujado no es un pulso `show` externo. M04 guarda una "foto" de lo que está
+mostrando y la compara en cada ciclo contra las entradas actuales. `cambio` vale 1 si:
+
+- `state` es distinto al de la foto, o
+- se está en SELECCION y `modo` cambió, o
+- se está en JUEGO y cambió `mascara` o `intentos`.
+
+`intentos` entra aparte de `mascara` porque una letra incorrecta no revela ninguna posición, y
+sin esa condición un fallo nunca redibujaría el contador. Desde IDLE se arranca un envío solo si
+`cambio=1`, `state` no es CARGA y `busy=0`. El `busy` evita escribirle al periférico mientras
+todavía corre la inicialización del HD44780 después del reset. La foto se toma justo al arrancar
+el envío, así que si el contenido vuelve a cambiar a media ráfaga (otra letra llega mientras el
+LCD todavía imprime la anterior), el mensaje en curso se termina completo con la foto vieja,
+`cambio` sigue en 1, y apenas vuelve a IDLE arranca otra ráfaga con lo más reciente. Nunca queda
+una pantalla mezclada.
+
+Después del reset la foto guarda `state = 111`, un código que la FSM no usa, así que el primer
+ciclo libre ya ve `cambio=1` y pinta la pantalla de selección apenas el periférico termina su
+inicialización.
 
 ## h) Diseño
 
-Para este diseño el módulo se modela como una máquina de Moore de 4 estados: `IDLE`, `HOME`, `SEND`, `WAIT`.
+El módulo se modela como una máquina de Moore de 4 estados: `IDLE`, `HOME`, `SEND`, `WAIT`, con un
+bit auxiliar `byte_step` que divide `HOME` y `SEND` en dos sub-pasos.
 
 Tabla de transición de estados:
 
-| Estado actual | show | done | pos = fin? | Estado siguiente |
-|---|---|---|---|---|
-| IDLE | 0 | X | X | IDLE |
-| IDLE | 1 | X | X | HOME |
-| HOME | X | X | X | SEND |
-| SEND | X | X | X | WAIT |
-| WAIT | X | 0 | X | WAIT |
-| WAIT | X | 1 | 0 | SEND (`pos = pos+1`) |
-| WAIT | X | 1 | 1 | IDLE |
+| Estado actual | Condición | Estado siguiente | Efecto |
+|---|---|---|---|
+| IDLE | `cambio · (state ≠ CARGA) · busy'` | HOME | `pos=0`, `byte_step=0`, captura la foto |
+| IDLE | resto | IDLE | |
+| HOME, `byte_step=0` | X | HOME | escribe `clear`+`home`, `byte_step=1` |
+| HOME, `byte_step=1` | `done=0` | HOME | |
+| HOME, `byte_step=1` | `done=1` | SEND | `byte_step=0` |
+| SEND, `byte_step=0` | X | SEND | escribe el carácter en `REG_DATOS`, `byte_step=1` |
+| SEND, `byte_step=1` | X | WAIT | pulsa `start` con `rs=1`, `byte_step=0` |
+| WAIT | `done=0` | WAIT | |
+| WAIT | `done=1 · (pos = last_pos)` | IDLE | |
+| WAIT | `done=1 · (pos ≠ last_pos)` | SEND | `pos = pos+1` |
 
 Codificación de estado (2 bits, `S1 S0`): `IDLE=00`, `HOME=01`, `SEND=10`, `WAIT=11`.
 
-El contador de posición (`pos`) es de 4 bits (alcanza hasta 16 caracteres, el ancho del
-PmodCLP), se reinicia en `HOME` y se incrementa cada vez que `WAIT` recibe `done=1` sin haber
-llegado al final del mensaje. El byte a enviar sale de una pequeña ROM de texto (una por modo)
-seleccionada por `modo`, o directamente de `letra_in` cuando se muestra la palabra en juego; un
-multiplexor 2:1 decide la fuente. Se usa una ROM en vez de lógica combinacional dedicada por ser
-mensajes fijos de longitud conocida — la forma estándar de guardar texto constante a nivel de
-compuertas/MSI sin recurrir a memoria de programa.
+`REG_DATOS` y `REG_CTRL_ESTADO` son direcciones distintas del mismo bus, así que escribir el byte y
+pulsar `start`/`rs` no caben en el mismo ciclo. Por eso `SEND` usa `byte_step`: el primer
+sub-paso escribe `REG_DATOS` y el segundo pulsa `start`/`rs` en `REG_CTRL_ESTADO`. `HOME` reutiliza
+el mismo bit para su espera: en el primer sub-paso escribe `clear`/`home` y en el segundo ya no
+toca el bus, solo espera `done`. Así se evita un quinto estado y la codificación se queda en 2
+bits.
+
+En el diseño original `HOME` pasaba a `SEND` sin esperar nada, suponiendo que `PERIFERICO_LCD`
+absorbía la espera larga del `clear`/`home`. `tb_mostrar_lcd.sv` mostró en simulación que no era
+así: el primer byte del mensaje se pisaba con el propio comando en curso y el mensaje salía
+corrido una posición ("MODO: FACIL" salía como "ODO: FACIL "). Por eso `HOME` espera `done` igual
+que `WAIT`.
+
+`done` es un pulso de un ciclo en el bit 9 de `REG_CTRL_ESTADO`, y la lectura del bus depende de
+`o_addr`. Por eso en los ciclos de espera (`HOME` con `byte_step=1` y `WAIT`) la dirección se deja
+en `00`, la dirección por defecto de la lógica de salida, para no perder ese pulso.
+
+### Foto (REG_FOTO)
+
+Al pasar de IDLE a HOME se capturan `act_state`, `act_modo`, `act_mascara`, `act_intentos` y
+`act_last_pos`, este último calculado una sola vez con la tabla de largos de la g) menos uno:
+
+| `state` | `last_pos` |
+|---|---|
+| SELECCION, `modo=0` | 10 |
+| SELECCION, `modo=1` | 12 |
+| JUEGO | 15 |
+| GANO | 6 |
+| PERDIO | 7 |
+
+Todo el envío se compone desde la foto, no desde las entradas en vivo. La excepción es
+`i_word`/`i_word_length`, que se leen directo porque `REG_Palabra-escogida` solo cambia en CARGA,
+que no tiene pantalla, así que no pueden cambiar a media ráfaga de JUEGO.
+
+### Contador de posición y fuente del carácter
+
+`pos` es de 4 bits, alcanza las 16 posiciones del PmodCLP. Se reinicia al arrancar el envío y se
+incrementa cada vez que `WAIT` recibe `done` sin haber llegado a `last_pos`.
+
+El byte a enviar lo decide un multiplexor 2:1 según `act_state`:
+
+- Pantallas de texto fijo (SELECCION, GANO, PERDIO): una ROM de texto indexada por
+  (`act_state`, `act_modo`, `pos`), `f_byte` en el código. Se usa una ROM en vez de lógica
+  dedicada por ser mensajes fijos de longitud conocida, la forma estándar de guardar texto
+  constante.
+- Pantalla de JUEGO, `f_byte_juego` en el código:
+
+| Condición sobre `pos` | Carácter |
+|---|---|
+| `pos < word_length` y `mascara[pos]=1` | `i_word[pos*8 +: 8]` |
+| `pos < word_length` y `mascara[pos]=0` | `_` |
+| `word_length ≤ pos < 12` | espacio |
+| `pos = 12` | espacio |
+| `pos = 13` | `I` |
+| `pos = 14` | `:` |
+| `pos = 15` | dígito de intentos restantes |
+
+El dígito sale de una tabla directa sobre los fallos acumulados, en vez de un restador `6 -
+intentos` seguido de la suma de `"0"`. Son solo 7 valores posibles, porque `M12_Contador-Intentos`
+satura en 6:
+
+| `intentos` | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|---|
+| dígito | `6` | `5` | `4` | `3` | `2` | `1` | `0` |
+
+### Lógica de salida al bus
+
+| Estado | `o_addr` | `o_write_enable` | `o_wdata` |
+|---|---|---|---|
+| IDLE, WAIT | `00` | 0 | 0 |
+| HOME, `byte_step=0` | `00` | 1 | bit 2 `clear` = 1, bit 3 `home` = 1 |
+| HOME, `byte_step=1` | `00` | 0 | 0 |
+| SEND, `byte_step=0` | `01` | 1 | bits 7:0 = carácter |
+| SEND, `byte_step=1` | `00` | 1 | bit 0 `start` = 1, bit 1 `rs` = 1 |
 
 ## i) Diagrama esquemático detallado (por compuertas lógicas)
 
@@ -1966,20 +2393,35 @@ compuertas/MSI sin recurrir a memoria de programa.
 flowchart LR
     S1Q["S1 (Q)"] --> NSL["Lógica de<br/>siguiente estado<br/>(AND/OR/NOT)"]
     S0Q["S0 (Q)"] --> NSL
-    SHOW(["show"]) --> NSL
+    BSQ["byte_step (Q)"] --> NSL
+    CAMBIO(["cambio"]) --> ARR["AND3<br/>cambio · no CARGA · busy'"]
+    NOCARGA(["state ≠ CARGA"]) --> ARR
+    BUSY(["busy"]) --> NOTB["NOT"]
+    NOTB --> ARR
+    ARR --> NSL
     DONE(["done"]) --> NSL
-    POSEND(["pos_fin"]) --> NSL
+    POSEND(["pos = last_pos"]) --> NSL
     NSL --> D1["D-FF S1"]
     NSL --> D2["D-FF S0"]
+    NSL --> D3["D-FF byte_step"]
     CLK(["clk"]) --> D1
     CLK --> D2
+    CLK --> D3
     D1 --> S1Q
     D2 --> S0Q
+    D3 --> BSQ
     S1Q --> DEC["DECOD 2:4<br/>(estados)"]
     S0Q --> DEC
+    DEC --> CAPT(["captura foto (IDLE → HOME)"])
     DEC --> CTEN(["enable contador pos"])
-    DEC --> STARTB(["start bus (RS, W1P)"])
+    DEC --> BUSOUT(["lógica de bus (tabla h)"])
+    BSQ --> BUSOUT
 ```
+
+`cambio` es el OR de tres comparadores de igualdad negados contra la foto (`state`, `modo`
+habilitado por SELECCION, `mascara`/`intentos` habilitados por JUEGO). La ROM de texto y el
+generador de la pantalla de juego no se dibujan por compuertas, están descritos por sus tablas en
+la h).
 
 ---
 
@@ -2784,67 +3226,122 @@ M09_Botones
 
 ```mermaid
 flowchart LR
-    IN_SEL(["BTN_SEL"]) --> DEB1["DEBOUNCER_SEL<br/>contador + registro"]
-    DEB1 --> EDGE1["DETECTOR_FLANCO<br/>flip-flop"]
-    EDGE1 --> OUT_SEL(["sel (a FSM)"])
-    IN_OK(["BTN_OK"]) --> DEB2["DEBOUNCER_OK<br/>contador + registro"]
-    DEB2 --> EDGE2["DETECTOR_FLANCO<br/>flip-flop"]
-    EDGE2 --> OUT_OK(["ok (a FSM)"])
+    IN_SEL(["btn_sel"]) --> DEB1["debounce_sel (debounce.sv)<br/>sincronizador + contador de estabilidad"]
+    DEB1 --> EDGE1["DETECTOR_FLANCO<br/>flip-flop + AND"]
+    EDGE1 --> OUT_SEL(["btn_sel_pulse (a FSM)"])
+    IN_OK(["btn_ok"]) --> DEB2["debounce_ok (debounce.sv)<br/>sincronizador + contador de estabilidad"]
+    DEB2 --> EDGE2["DETECTOR_FLANCO<br/>flip-flop + AND"]
+    EDGE2 --> OUT_OK(["btn_ok_pulse (a FSM)"])
 ```
+
+El filtro de rebote está en un submódulo aparte, `debounce.sv`, que `botones.sv` instancia dos
+veces, una por botón, con el mismo parámetro `N = 21`. Los dos detectores de flanco están en
+`botones.sv`.
 
 ## c) Objetivo del módulo
 
 Elimina los rebotes eléctricos de los botones de selección y confirmación, entregando pulsos
-limpios `sel` y `ok` directamente a la `FSM`.
+limpios de un ciclo `sel` y `ok` directamente a la `FSM`.
 
 ## d) Entradas
 
-- `BTN_SEL`: botón de selección.
-- `BTN_OK`: botón de confirmación.
-- `clk`: reloj del sistema.
-- `BTN_RST`: reinicio del sistema.
+- `clk`: reloj del sistema, 100 MHz.
+- `rst`: reinicio del sistema, desde `BTN_RST`.
+- `btn_sel`: botón de selección, señal cruda.
+- `btn_ok`: botón de confirmación, señal cruda.
+
+`debounce.sv` tiene el `parameter N` (por defecto 21), el ancho de su contador de estabilidad.
 
 ## e) Salidas
 
-- `sel`: evento de selección hacia la `FSM`.
-- `ok`: evento de confirmación hacia la `FSM`.
+- `btn_sel_pulse`: pulso de un ciclo por cada presión de BTN_SEL, hacia la entrada `i_sel` de la
+  `FSM`.
+- `btn_ok_pulse`: pulso de un ciclo por cada presión de BTN_OK, hacia la entrada `i_ok` de la
+  `FSM`.
 
 ## f) Explicación de la relación con otros módulos
 
 Es el único módulo que toca directamente las señales físicas `BTN_SEL` y `BTN_OK`. Entrega
-`sel` y `ok` únicamente a la `FSM`; ningún otro módulo consume estas señales (ya no existe un
-M11_Modo intermedio como en versiones anteriores del diagrama). No depende de ningún otro
-módulo M0X, solo de `clk`/`BTN_RST`: es de los módulos más aislados del sistema, junto con
+`btn_sel_pulse` y `btn_ok_pulse` únicamente a la `FSM`; ningún otro módulo consume estas señales
+(ya no existe un M11_Modo intermedio como en versiones anteriores del diagrama). No depende de
+ningún otro módulo M0X, solo de `clk`/`rst`: es de los módulos más aislados del sistema, junto con
 M05_Estado.
 
 ## g) Funcionamiento
 
 Filtra las transiciones inestables de los botones y genera pulsos únicos y sincronizados para el
-control del juego. Cada botón pasa primero por un sincronizador de 2 etapas para evitar
-metaestabilidad al cruzar del dominio "asíncrono/mecánico" al reloj del sistema. Luego se
-compara la muestra actual contra la muestra anterior a un ritmo fijo (`tick` de ~1 kHz, derivado
-con un divisor de reloj); mientras cambien entre muestreos (rebote), se reinicia un contador;
-cuando el valor se mantiene igual durante N muestreos consecutivos (por ejemplo 16, ≈16 ms a
-1 kHz), se acepta como el nuevo valor estable del botón. Un detector de flanco de subida sobre
-el valor ya estable genera un pulso de un solo ciclo de reloj (`sel`/`ok`) cada vez que el botón
-pasa de no presionado a presionado, para que la FSM no vea "presionado" sostenido varios ciclos.
+control del juego. Cada botón pasa por tres etapas.
+
+1. **Sincronizador.** Dos flip-flops D en cascada, `dff1` y `dff2`, llevan la señal mecánica
+   asíncrona al dominio del reloj y reducen la probabilidad de metaestabilidad.
+2. **Contador de estabilidad.** En cada ciclo se compara la muestra de `dff1` con la de `dff2`,
+   que es la misma señal un ciclo antes. Si difieren, el botón está rebotando y el contador de
+   `N` bits vuelve a 0. Si son iguales, el contador sube, hasta que su bit más alto
+   (`q_reg[N-1]`) se pone en 1 y ahí se queda. Mientras ese bit está en 1, la salida estable
+   `button_out` copia a `dff2` en cada ciclo. Con `N = 21`, el bit 20 se enciende después de
+   2²⁰ = 1 048 576 ciclos iguales seguidos, unos 10.5 ms a 100 MHz.
+3. **Detector de flanco de subida.** Sobre el valor ya estable, genera un pulso de un solo ciclo
+   de reloj cada vez que el botón pasa de no presionado a presionado, para que la FSM no vea
+   "presionado" sostenido varios ciclos.
+
+No hace falta un divisor de reloj ni un `tick` de muestreo: el contador corre a la frecuencia del
+reloj y el tiempo de estabilidad sale directamente de su ancho.
+
+Un cambio nuevo nunca pasa a la salida sin cumplir otra vez la espera completa. En el ciclo en
+que `dff1` toma el valor nuevo, `dff1 ≠ dff2` y el contador se reinicia en ese mismo flanco,
+mientras `button_out` todavía copia el valor viejo de `dff2`. En el ciclo siguiente, cuando `dff2`
+ya tiene el valor nuevo, el bit alto del contador ya está en 0 y `button_out` no se actualiza
+hasta completar los ~10.5 ms.
+
+La comparación usa `dff1`, la primera etapa del sincronizador, que es la que podría quedar
+metaestable. Si eso pasara, el único efecto sería reiniciar el contador un ciclo antes o después,
+que no cambia el valor que llega a `button_out` (ese siempre sale de `dff2`), así que se acepta.
 
 ## h) Diseño
 
-Comparador de igualdad entre la muestra actual y la anterior (`sample`, `sample_prev`) para
-decidir si reiniciar o incrementar el contador de estabilidad:
+### Detección de cambio
 
-| sample | sample_prev | match (= igual) |
+`q_rst` indica que la muestra cambió entre un ciclo y el siguiente:
+
+| dff1 | dff2 | q_rst |
 |---|---|---|
-| 0 | 0 | 1 |
-| 0 | 1 | 0 |
-| 1 | 0 | 0 |
-| 1 | 1 | 1 |
+| 0 | 0 | 0 |
+| 0 | 1 | 1 |
+| 1 | 0 | 1 |
+| 1 | 1 | 0 |
 
-`match = sample XNOR sample_prev` (una sola compuerta, ya en forma mínima).
+`q_rst = dff1 XOR dff2` (una sola compuerta, ya en forma mínima).
 
-Detector de flanco de subida sobre el valor estable (`Q` = valor estable actual, `Qd` = valor
-estable un ciclo antes):
+### Contador de estabilidad
+
+`q_add = NOT q_reg[N-1]`, el contador todavía no llegó a su valor de saturación. Siguiente valor
+del contador:
+
+| q_rst | q_add | q_next |
+|---|---|---|
+| 0 | 1 | `q_reg + 1` |
+| 0 | 0 | `q_reg` (saturado) |
+| 1 | X | 0 |
+
+Registro de salida del filtro:
+
+| rst | q_reg[N-1] | button_out' |
+|---|---|---|
+| 1 | X | 0 |
+| 0 | 1 | `dff2` |
+| 0 | 0 | `button_out` |
+
+`q_reg[N-1]` funciona como el habilitador del flip-flop de salida, así que no se necesita un
+comparador contra un valor final: basta con el bit más significativo del contador.
+
+Parámetros: con `N = 21` el tiempo de estabilidad es 2^(N-1) ciclos = 1 048 576 ciclos ≈ 10.5 ms
+a 100 MHz, suficiente para los rebotes típicos de un pulsador (unos pocos ms) y todavía
+imperceptible para el jugador.
+
+### Detector de flanco de subida
+
+Sobre el valor estable (`Q` = `button_out` actual, `Qd` = `button_out` un ciclo antes, registro
+`btn_*_db_prev` en `botones.sv`):
 
 | Qd | Q | pulso |
 |---|---|---|
@@ -2853,35 +3350,38 @@ estable un ciclo antes):
 | 1 | 0 | 0 |
 | 1 | 1 | 0 |
 
+`pulso = Q AND NOT Qd`.
+
 ## i) Diagrama esquemático detallado (por compuertas lógicas)
 
-A continuación se muestra solamente el diagrama del btn_sel, ya que son identicos para ambos casos.
+A continuación se muestra solamente el diagrama de `btn_sel`, ya que es idéntico para ambos
+botones.
 
 ```mermaid
 flowchart LR
-    RAW(["BTN_SEL"]) --> D1["D-FF<br/>sync1"]
+    RAW(["btn_sel"]) --> D1["D-FF<br/>dff1"]
     CLK(["clk"]) --> D1
-    D1 --> D2["D-FF<br/>sync2"]
+    D1 --> D2["D-FF<br/>dff2"]
     CLK --> D2
-    D2 --> SAMPLE["sample"]
-    SAMPLE --> XNOR1["XNOR"]
-    SAMPLE --> DP["D-FF<br/>sample_prev"]
-    CLK --> DP
-    DP --> XNOR1
-    XNOR1 --> MATCH["match"]
-    MATCH -->|"CTEN"| CNT["74LS163<br/>contador estabilidad"]
-    TICK(["tick_1kHz"]) --> CNT
-    MATCH -->|"CLR' (invertido)"| CNT
-    CNT -->|"RCO"| DQ["D-FF<br/>estable (Q)"]
-    SAMPLE --> DQ
+    D1 --> XOR1["XOR"]
+    D2 --> XOR1
+    XOR1 -->|"q_rst: clear síncrono"| CNT["Contador 21 bits<br/>q_reg"]
+    CNT -->|"q_reg[20]"| NOT1["NOT"]
+    NOT1 -->|"q_add: habilita cuenta"| CNT
+    CLK --> CNT
+    CNT -->|"q_reg[20]: enable"| DQ["D-FF con enable<br/>button_out (Q)"]
+    D2 --> DQ
     CLK --> DQ
     DQ --> QREG["Q"]
-    QREG --> AND1["AND<br/>(un input invertido)"]
-    QREG --> DQD["D-FF<br/>Qd"]
+    QREG --> AND1["AND<br/>(Qd invertido)"]
+    QREG --> DQD["D-FF<br/>Qd = btn_sel_db_prev"]
     CLK --> DQD
     DQD --> AND1
-    AND1 --> PULSE(["sel"])
+    AND1 --> PULSE(["btn_sel_pulse"])
 ```
+
+`rst` entra a todos los flip-flops y al contador aunque no se dibuje, por el mismo criterio del
+resto de los diagramas del proyecto.
 
 ---
 
@@ -3641,11 +4141,15 @@ a continuación.
 
 ## e) Salidas
 
-- `state`, estado actual del sistema en 3 bits, hacia M02_Generador-Tono, M03_Temporizador,
-  M04_Mostrar-LCD, M05_Estado, M06_Ganadas, M07_Comparador-letra, M08_LFSR, M10_Receptor-UART,
-  M11_Transmisor-UART, M12_Contador-Intentos y REG_Letra-in.
-- `modo`, dificultad seleccionada, 0 para FACIL y 1 para DIFICIL, hacia M03_Temporizador,
+- `o_state[2:0]`, estado actual del sistema en 3 bits, hacia M02_Generador-Tono,
+  M03_Temporizador, M04_Mostrar-LCD, M05_Estado, M06_Ganadas, M07_Comparador-letra, M08_LFSR,
+  M10_Receptor-UART, M11_Transmisor-UART, M12_Contador-Intentos y REG_Letra-in.
+- `o_modo`, dificultad seleccionada, 0 para FACIL y 1 para DIFICIL, hacia M03_Temporizador,
   M04_Mostrar-LCD, M08_LFSR y M11_Transmisor-UART.
+
+En el `.sv` las entradas llevan prefijo `i_` y las salidas `o_` (`i_sel`, `i_ok`, `i_valid_word`,
+`i_palabra_completa`, `i_intentos_agotados`, `i_tiempo_agotado`, `i_fin_espera`). En el resto de
+este documento se nombran sin prefijo para no cargar el texto.
 
 Son las únicas dos salidas del módulo, cuatro bits en total. No hay señales de `start`, `show`,
 `choose`, `count` ni `load` porque la FSM no le ordena nada puntual a ningún módulo.
@@ -3658,13 +4162,13 @@ Le entregan eventos a la FSM:
 - M08_LFSR, con `valid_word` cuando la palabra de la partida quedó lista en REG_Palabra-escogida.
 - M07_Comparador-letra, con `palabra_completa` cuando su máscara de posiciones reveladas se llenó.
 - M12_Contador-Intentos, con `intentos_agotados` cuando el contador llegó a seis fallos.
-- M03_Temporizador, con `tiempo_agotado` durante la partida y con `fin_espera` cuando ya pasaron
-  los 3 s mínimos mostrando el resultado.
+- M03_Temporizador, con `tiempo_agotado` durante la partida y con `fin_espera` cuando ya pasó la
+  espera mostrando el resultado.
 
 Consumen `state` los once bloques listados en la e). Cada uno decodifica los estados que le
 importan e ignora el resto. M05_Estado lo traduce al LED, M03_Temporizador lo usa para arrancar y
 detener la cuenta, M08_LFSR muestrea al entrar a CARGA, M06_Ganadas incrementa al entrar a GANO,
-M04_Mostrar-LCD elige cuál de las tres pantallas pinta, M11_Transmisor-UART decide cuál trama
+M04_Mostrar-LCD elige cuál de sus pantallas pinta, M11_Transmisor-UART decide cuál trama
 manda, y REG_Letra-in y M10_Receptor-UART lo usan para descartar letras fuera de partida.
 
 Consumen `modo` los cuatro que necesitan saber la dificultad, M03_Temporizador para cargar 60 s o
@@ -3699,11 +4203,18 @@ letras entran por UART, M07 las compara, M12 cuenta los fallos, M04 repinta el L
 reporta a la PC, todo sin intervención de la FSM. Ella solo vigila tres señales, `palabra_completa`
 para ganar, `intentos_agotados` para perder por fallos, y `tiempo_agotado` para perder por tiempo.
 
-Los tres estados de fin funcionan igual entre sí. Se mantienen mientras M03_Temporizador cuenta los
-3 s que el enunciado exige que el resultado quede en pantalla, y cuando llega `fin_espera` la FSM
-vuelve sola a SELECCION para la siguiente partida. Están separados en GANO, PERDIO_INTENTOS y
-PERDIO_TIEMPO porque el resultado y su causa tienen que salir por UART y por LCD, y teniéndolos
-como estados distintos esa información viaja en el mismo `state` que ya se difunde.
+Los dos estados de fin, GANO y PERDIO, funcionan igual entre sí. Se mantienen mientras
+M03_Temporizador cuenta la espera de resultado en pantalla, y cuando llega `fin_espera` la FSM
+vuelve sola a SELECCION para la siguiente partida.
+
+A PERDIO se llega por cualquiera de las dos derrotas, `intentos_agotados` o `tiempo_agotado`, y
+la FSM no guarda cuál fue. En el primer planteamiento eran dos estados, PERDIO_INTENTOS y
+PERDIO_TIEMPO, para que la causa viajara en `state`. Se juntaron porque ningún consumidor la
+necesita sacar de ahí. M04_Mostrar-LCD muestra un único "PERDISTE", y M11_Transmisor-UART
+distingue la causa por su cuenta con `intentos` de M12_Contador-Intentos, que solo se limpia en
+CARGA y por lo tanto sigue intacto durante PERDIO (seis fallos es derrota por intentos, menos de
+seis es derrota por tiempo). Con un estado menos la FSM y los decodificadores que miran los
+estados de fin quedan más simples.
 
 BTN_RST es un reset físico que llega sincronizado a todos los módulos por igual. Devuelve la FSM a
 SELECCION desde cualquier estado, y en el mismo golpe M06_Ganadas pone su contador acumulado en
@@ -3713,23 +4224,23 @@ cero, que es lo que pide el enunciado. La FSM no manda ninguna señal para que e
 
 ### Codificación de estados
 
-Seis estados, tres bits, codificación binaria:
+Cinco estados, tres bits, codificación binaria:
 
 - `000` SELECCION
 - `001` CARGA
 - `010` JUEGO
 - `011` GANO
-- `100` PERDIO_INTENTOS
-- `101` PERDIO_TIEMPO
+- `100` PERDIO
 
 Se descartó one-hot aunque sea lo típico para FSM en FPGA. Con one-hot cada módulo decodificaría
 con una sola comparación de bit, que es más barato, pero `state` sale del módulo como puerto hacia
-once bloques, y seis líneas contra tres duplican el ruteo de una señal que ya es la más difundida
-del diseño. Además, al ser puerto, Vivado no puede recodificar el registro por su cuenta, así que
+once bloques, y cinco líneas contra tres casi duplican el ruteo de una señal que ya es la más
+difundida del diseño. Además, al ser puerto, Vivado no puede recodificar el registro por su cuenta, así que
 la codificación queda fija de todas formas y conviene que sea la compacta.
 
-Los códigos `110` y `111` no se usan. El `default` de la lógica combinacional los manda a
-SELECCION, tanto para no dejar estados colgados como para que no se infiera un latch.
+Los códigos `101`, `110` y `111` no se usan. `101` era PERDIO_TIEMPO antes de juntar las dos
+derrotas, y ahora cae en el mismo `default` que los otros dos, que los manda a SELECCION, tanto
+para no dejar estados colgados como para que no se infiera un latch.
 
 ### Tabla de transiciones
 
@@ -3744,16 +4255,14 @@ van los `if / else if / else` de la implementación:
 | CARGA `001` | `valid_word` | JUEGO `010` | |
 | CARGA `001` | ninguna | CARGA `001` | |
 | JUEGO `010` | `palabra_completa` | GANO `011` | |
-| JUEGO `010` | `intentos_agotados` | PERDIO_INTENTOS `100` | |
-| JUEGO `010` | `tiempo_agotado` | PERDIO_TIEMPO `101` | |
+| JUEGO `010` | `intentos_agotados` | PERDIO `100` | |
+| JUEGO `010` | `tiempo_agotado` | PERDIO `100` | |
 | JUEGO `010` | ninguna | JUEGO `010` | |
 | GANO `011` | `fin_espera` | SELECCION `000` | |
 | GANO `011` | ninguna | GANO `011` | |
-| PERDIO_INTENTOS `100` | `fin_espera` | SELECCION `000` | |
-| PERDIO_INTENTOS `100` | ninguna | PERDIO_INTENTOS `100` | |
-| PERDIO_TIEMPO `101` | `fin_espera` | SELECCION `000` | |
-| PERDIO_TIEMPO `101` | ninguna | PERDIO_TIEMPO `101` | |
-| `110`, `111` | cualquiera | SELECCION `000` | estados no usados |
+| PERDIO `100` | `fin_espera` | SELECCION `000` | |
+| PERDIO `100` | ninguna | PERDIO `100` | |
+| `101`, `110`, `111` | cualquiera | SELECCION `000` | estados no usados |
 
 ### Registro de modo
 
@@ -3761,10 +4270,10 @@ van los `if / else if / else` de la implementación:
 estado. Las transiciones no lo tocan, lo mueve únicamente BTN_SEL:
 
 | Condición (prioridad descendente) | `modo'`  |
-| ---------------------------------- | -------- |
-| `rst = 1`                          | `0`      |
-| `state = SELECCION` y `sel = 1`    | `NOT modo` |
-| resto                               | `modo`   |
+| --------------------------------- | -------- |
+| `rst = 1`                         | `0`      |
+| `state = SELECCION` y `sel = 1`   | `NOT modo` |
+| resto                             | `modo`   |
 
 La segunda fila es la que congela la dificultad durante la partida. Fuera de SELECCION el pulso
 `sel` no hace nada, así que un botonazo accidental a media partida no puede cambiarle el
@@ -3773,9 +4282,9 @@ temporizador ni el banco de palabras a una partida ya empezada.
 Significado del bit y valores que dispara en los otros módulos:
 
 | `modo` | Dificultad | Palabras del banco        | Tiempo de partida |
-| ------ | ---------- | -------------------------- | ------------------ |
-| `0`    | FACIL      | cualquiera, 4 a 12 letras  | 60 s               |
-| `1`    | DIFICIL    | solo de 6 letras o más    | 45 s               |
+| ------ | ---------- | ------------------------- | ----------------- |
+| `0`    | FACIL      | cualquiera, 4 a 12 letras | 60 s              |
+| `1`    | DIFICIL    | solo de 6 letras o más    | 45 s              |
 
 Los tiempos son los sugeridos por el enunciado y se mantienen tal cual. La relación que sí es
 obligatoria es que difícil tenga menos tiempo que fácil, y 45 contra 60 la cumple. La
@@ -3787,10 +4296,14 @@ Después del reset el sistema arranca en FACIL, que es el modo que se muestra pr
 
 ### Prioridades y casos de borde
 
-En SELECCION, `ok` va antes que `sel` por si alguien presiona los dos botones en el mismo ciclo.
-Confirmar es la acción destructiva de las dos, y dejarla de última haría que un `sel` simultáneo
-cambiara la dificultad justo en el ciclo en que se confirma, arrancando la partida con un modo
-distinto al que el jugador vio en el LCD.
+En SELECCION, `ok` y `sel` no compiten entre sí porque actúan sobre registros distintos. `ok`
+decide el estado siguiente y `sel` conmuta `modo`, y la condición de `modo` solo mira que el estado
+actual sea SELECCION, no que `ok` esté en cero. Si los dos pulsos llegaran en el mismo ciclo, la
+FSM pasaría a CARGA y `modo` se conmutaría en ese mismo flanco, así que la partida arrancaría con
+el modo contrario al que mostraba el LCD. En la práctica no pasa. Cada botón pasa por su propio
+filtro de rebote en M09_Botones (unos 10 ms de estabilidad) y su detector de flanco entrega un
+pulso de un solo ciclo de 10 ns, así que que los dos pulsos caigan exactamente en el mismo ciclo
+de reloj es despreciable.
 
 En JUEGO la victoria va de primera. `palabra_completa` y `tiempo_agotado` sí pueden coincidir en un
 mismo ciclo, si la última letra completa la palabra justo cuando la cuenta llega a cero, y ahí gana
@@ -3798,9 +4311,10 @@ el jugador. `palabra_completa` e `intentos_agotados` no pueden coincidir, porque
 incorrecta nunca revela una posición nueva, así que ese orden entre las dos no cambia nada en la
 práctica y se deja documentado por completitud.
 
-Entre las dos derrotas manda `intentos_agotados`. El enunciado dice que a la sexta letra incorrecta
-la partida se pierde sin importar el tiempo restante, y respetar ese orden hace que la causa
-reportada por UART sea la de intentos cuando ambas ocurren juntas.
+Entre las dos derrotas el orden es indiferente, las dos llevan a PERDIO. En el `.sv` se dejan
+como dos ramas `else if` separadas, primero `intentos_agotados` y luego `tiempo_agotado`, solo para
+que cada condición de la tabla se lea igual en el código. La causa que reporta M11 no sale de
+este orden sino del contador de intentos, como se explicó en la g).
 
 ### Por qué la FSM no espera al LCD ni al UART
 
@@ -3811,8 +4325,8 @@ perdería, o habría que meterle una cola a la FSM y volverla el bloque más com
 
 Lo que hace M04_Mostrar-LCD es repintar la pantalla que corresponde al `state` que ve en el
 momento en que el LCD queda libre. Si un estado corto pasa antes de que alcance a refrescar,
-simplemente pinta el siguiente, y como cada pantalla se compone completa desde el estado actual,
-nunca queda una mezcla de dos pantallas. El único estado que puede pasar más rápido que un
+simplemente pinta el siguiente, y como cada pantalla se compone completa desde una foto del estado
+tomada al arrancar el envío, nunca queda una mezcla de dos pantallas. El único estado que puede pasar más rápido que un
 refresco del LCD es CARGA, y no tiene pantalla propia.
 
 M11_Transmisor-UART sí ve todos los estados, porque muestrea a 100 MHz y el estado más corto dura
@@ -3820,10 +4334,17 @@ al menos un ciclo.
 
 ### Duración de los estados de resultado
 
-Los 3 s los cuenta M03_Temporizador y no la FSM. Meter un contador de segundos adentro de la FSM
+La espera la cuenta M03_Temporizador y no la FSM. Meter un contador de segundos adentro de la FSM
 obligaría a duplicar el prescalador de 100 MHz a 1 Hz que M03 ya tiene, y dejaría la FSM con lógica
-de tiempo real, que es justo lo que se quiere sacar de ella. M03 decodifica que `state` está en uno
-de los tres estados de fin, cuenta, y levanta `fin_espera`.
+de tiempo real, que es justo lo que se quiere sacar de ella. M03 decodifica que `state` está en
+GANO o PERDIO, cuenta tres pulsos de su `tick_1hz`, y levanta `fin_espera`. Como ese prescalador
+corre libre, la espera real queda entre 2 y 3 s según en qué punto del segundo se entró al estado
+de fin, el detalle está en `M03_Temporizador.md`.
+
+M03 también se encarga de que `tiempo_agotado` y `fin_espera` valgan 0 en el primer ciclo del
+estado que los consulta, JUEGO y GANO/PERDIO respectivamente. La FSM los lee sin filtrar, así que
+si alguno quedara en 1 de la partida anterior la FSM saltaría de estado en ese primer ciclo. Esa
+garantía es parte del contrato entre los dos módulos y está documentada en la g) de M03.
 
 ### Estructura de la implementación
 
@@ -3836,8 +4357,9 @@ una máquina de Moore en el sentido más literal, la salida es el estado. `modo`
 aparte de un bit que solo conmuta con `sel` estando en SELECCION, y se congela durante el resto de
 la partida para que nadie pueda cambiar la dificultad a medio juego.
 
-Los anchos van con `localparam` y `$clog2`, siguiendo la convención del resto del proyecto, aunque
-acá el ancho de estado es fijo en 3 bits por el contrato de codificación.
+Los códigos de estado van como `localparam logic [2:0]` con el ancho escrito directo, sin `$clog2`,
+porque acá el ancho no depende de ningún parámetro, está fijo en 3 bits por el contrato de
+codificación.
 
 ## i) Diagrama esquemático detallado del diseño
 
@@ -3847,7 +4369,7 @@ rombo para comparador, y rectángulo etiquetado para lógica combinacional.
 ```mermaid
 flowchart LR
     IN_OK(["ok"]) --> LSE["LOGICA_SIGUIENTE_ESTADO<br/>combinacional"]
-    IN_SEL(["sel"]) --> LSE
+    IN_SEL(["sel"])
     IN_VW(["valid_word"]) --> LSE
     IN_PC(["palabra_completa"]) --> LSE
     IN_IA(["intentos_agotados"]) --> LSE
@@ -3868,8 +4390,9 @@ los diagramas del proyecto.
 
 Del diagrama se lee que no hay lógica entre `REG_ESTADO` y la salida `state`, el registro es la
 salida. Toda la combinacional del módulo está en `LOGICA_SIGUIENTE_ESTADO`, que son tres funciones
-booleanas de diez variables (tres de estado actual y siete de evento), y en la compuerta que
-habilita el conmutado de `modo`.
+booleanas de nueve variables (tres de estado actual y seis de evento, `sel` no entra porque no
+cambia el estado), y en la compuerta que habilita el conmutado de `modo`. Esa compuerta no recibe
+`ok`, que es la razón del caso de borde descrito en la h).
 
 Sobre el nivel de detalle que pide el método, un esquemático por compuertas dibujado a mano acá no
 aporta nada. Esas tres funciones las sintetiza Vivado con un puñado de LUT, y el número exacto
