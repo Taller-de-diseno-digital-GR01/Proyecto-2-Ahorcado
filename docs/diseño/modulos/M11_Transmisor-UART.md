@@ -45,22 +45,22 @@ prioridad de la FSM, que ante intentos agotados y tiempo en cero en el mismo cic
 ## d) Entradas
 
 - `clk`, `rst`.
-- `i_state[2:0]`: estado actual, desde `M13_FSM`, decide cuál trama toca enviar.
-- `i_modo`: modo de la partida, desde `M13_FSM`, viaja en la trama de inicio.
-- `i_letra_state[1:0]`: resultado de la última letra, desde `M07_Comparador-letra`. La
+- `i_state[2:0]`, estado actual, desde `M13_FSM`, decide cuál trama toca enviar.
+- `i_modo`, modo de la partida, desde `M13_FSM`, viaja en la trama de inicio.
+- `i_letra_state[1:0]`, resultado de la última letra, desde `M07_Comparador-letra`. La
   codificación es `00` fallo, `01` acierto, `10` repetida, y el `11` no se usa.
-- `i_letra_lista`: estrobo de un ciclo que acompaña a `i_letra_state`, desde
+- `i_letra_lista`, estrobo de un ciclo que acompaña a `i_letra_state`, desde
   `M07_Comparador-letra`. Es el que dispara la trama, no el valor de `i_letra_state`, porque dos
   letras seguidas con el mismo resultado no cambian ese bus y sin estrobo la segunda se perdería.
-- `i_intentos[2:0]`: fallos acumulados de la partida, desde `M12_Contador-Intentos`. Llega a 6,
+- `i_intentos[2:0]`, fallos acumulados de la partida, desde `M12_Contador-Intentos`. Llega a 6,
   así que 3 bits alcanzan. Viaja en la trama de letra y además decide la causa de una derrota.
-- `i_word_length[3:0]`: longitud de la palabra escogida, desde `REG_Palabra-escogida`, que en el
+- `i_word_length[3:0]`, longitud de la palabra escogida, desde `REG_Palabra-escogida`, que en el
   top es `word[63:60]` de `M08_LFSR`.
-- `i_mascara[WORD_MAXLEN-1:0]`: posiciones ya reveladas, desde `M07_Comparador-letra`. Es el
+- `i_mascara[WORD_MAXLEN-1:0]`, posiciones ya reveladas, desde `M07_Comparador-letra`. Es el
   patrón que el enunciado pide mandar junto con el resultado de la letra.
-- `i_rdata[WIDTH-1:0]`: lectura de vuelta del bus, de ahí sondea el bit `send` para saber si el
+- `i_rdata[WIDTH-1:0]`, lectura de vuelta del bus, de ahí sondea el bit `send` para saber si el
   periférico sigue ocupado. Llega pasando por `ARBITRO_UART`.
-- `i_bus_libre`: desde `ARBITRO_UART`, dice si este ciclo el bus es suyo.
+- `i_bus_libre`, desde `ARBITRO_UART`, dice si este ciclo el bus es suyo.
 
 El módulo está parametrizado con `WIDTH = 32`, el ancho del bus, y con `WORD_MAXLEN = 12`, el
 mismo valor que usan `M07_Comparador-letra` y el banco de palabras. El byte serial es
@@ -68,7 +68,7 @@ mismo valor que usan `M07_Comparador-letra` y el banco de palabras. El byte seri
 
 ## e) Salidas
 
-- `o_write_enable`, `o_addr[1:0]`, `o_wdata[WIDTH-1:0]`: petición hacia el bus, que entra por la cara
+- `o_write_enable`, `o_addr[1:0]`, `o_wdata[WIDTH-1:0]`, petición hacia el bus, que entra por la cara
   del transmisor de `ARBITRO_UART`.
 
 Todo lo que el módulo tiene que decir viaja empaquetado dentro de `o_wdata`, un byte a la vez.

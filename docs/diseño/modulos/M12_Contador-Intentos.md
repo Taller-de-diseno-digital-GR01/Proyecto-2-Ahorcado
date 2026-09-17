@@ -13,7 +13,7 @@ flowchart LR
     DEC_ST --> CNT1
     CNT1 --> CMP1{"CMP >= 6<br/>intentos agotados"}
     CMP1 --> OUT_FSM(["o_intentos_agotados (a M13_FSM)"])
-    CNT1 --> OUT_M11(["o_intentos (a M11)"])
+    CNT1 --> OUT_M11(["o_intentos (a M04 y M11)"])
 ```
 
 ## c) Objetivo del módulo
@@ -36,7 +36,7 @@ El módulo está parametrizado con `MAX_INTENTOS = 6`, el máximo que fija el en
 ## e) Salidas
 
 - `o_intentos[$clog2(MAX_INTENTOS+1)-1:0]`, fallos acumulados de la partida, hacia
-  `M11_Transmisor-UART`.
+  `M04_Mostrar-LCD` y `M11_Transmisor-UART`.
 - `o_intentos_agotados`, bandera de seis fallos alcanzados, hacia `M13_FSM`.
 
 ---
@@ -61,6 +61,11 @@ por tiempo en un solo estado PERDIO, y `M11_Transmisor-UART` mira si la cuenta l
 ciclo en que el sistema entra a ese estado. Eso le pone una condición a este módulo, la cuenta
 tiene que seguir intacta durante PERDIO. Hoy se cumple porque solo se limpia en CARGA. Si algún día
 se cambiara para limpiar al salir de JUEGO, la trama de fin diría siempre que se perdió por tiempo.
+
+`M04_Mostrar-LCD` también recibe la cuenta, y en la pantalla de juego la muestra como intentos
+restantes en el sufijo ` I:n`. Allá tampoco hay restador, el dígito sale de una tabla directa sobre
+los fallos acumulados. Cuando la cuenta cambia, ese módulo lo nota comparando contra su última foto
+y repinta solo, así que acá no hace falta ningún aviso aparte.
 
 De `M13_FSM` recibe `i_state`, y lo usa solo para limpiar la cuenta al entrar a CARGA, o sea al
 arrancar cada partida nueva.
@@ -157,7 +162,7 @@ flowchart LR
 
     CNT --> CMP_FIN{"CMP >= 6"}
     CMP_FIN --> OUT_AG(["o_intentos_agotados (a M13_FSM)"])
-    CNT --> OUT_INT(["o_intentos (a M11)"])
+    CNT --> OUT_INT(["o_intentos (a M04 y M11)"])
 ```
 
 `clk` y `rst` entran a `CONT_INTENTOS` aunque no se dibujen, por el mismo criterio del resto de
@@ -175,7 +180,7 @@ Ningún puerto de este módulo sale de la FPGA, así que no le corresponde ningu
 - `i_try`, desde `o_try` de `M07_Comparador-letra`.
 - `i_state`, desde `M13_FSM`.
 - `o_intentos_agotados`, hacia `M13_FSM`.
-- `o_intentos`, hacia `i_intentos` de `M11_Transmisor-UART`.
+- `o_intentos`, hacia `i_intentos` de `M04_Mostrar-LCD` y de `M11_Transmisor-UART`.
 
 Como en los demás módulos, el diagrama de conexiones por chips que pide el método corresponde a un
 montaje con integrados discretos, y en este diseño la traducción es la lista de puertos del

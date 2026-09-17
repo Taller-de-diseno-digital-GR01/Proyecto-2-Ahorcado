@@ -655,7 +655,7 @@ flowchart LR
     DEC_ST --> CNT1
     CNT1 --> CMP1{"CMP >= 6<br/>intentos agotados"}
     CMP1 --> OUT_FSM(["o_intentos_agotados (a M13_FSM)"])
-    CNT1 --> OUT_M11(["o_intentos (a M11)"])
+    CNT1 --> OUT_M11(["o_intentos (a M04 y M11)"])
 ```
 
 ### c) Objetivo del módulo
@@ -674,7 +674,7 @@ El módulo está parametrizado con `MAX_INTENTOS = 6`, el máximo que fija el en
 ### e) Salidas
 
 - `o_intentos[$clog2(MAX_INTENTOS+1)-1:0]`, fallos acumulados de la partida, hacia
-  `M11_Transmisor-UART`.
+  `M04_Mostrar-LCD` y `M11_Transmisor-UART`.
 - `o_intentos_agotados`, bandera de seis fallos alcanzados, hacia `M13_FSM`.
 
 ## M13: FSM

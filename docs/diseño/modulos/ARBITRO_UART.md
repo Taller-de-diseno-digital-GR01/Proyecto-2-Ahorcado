@@ -34,9 +34,9 @@ registro de control para que un maestro no le borre el bit al otro.
 
 ## d) Entradas
 
-- `i_rx_addr[1:0]`, `i_rx_we`, `i_rx_wdata[WIDTH-1:0]`: petición de `M10_Receptor-UART`.
-- `i_tx_addr[1:0]`, `i_tx_we`, `i_tx_wdata[WIDTH-1:0]`: petición de `M11_Transmisor-UART`.
-- `i_rdata[WIDTH-1:0]`: lo que devuelve `PERIFERICO_UART` en la dirección que se le está poniendo.
+- `i_rx_addr[1:0]`, `i_rx_we`, `i_rx_wdata[WIDTH-1:0]`, petición de `M10_Receptor-UART`.
+- `i_tx_addr[1:0]`, `i_tx_we`, `i_tx_wdata[WIDTH-1:0]`, petición de `M11_Transmisor-UART`.
+- `i_rdata[WIDTH-1:0]`, lo que devuelve `PERIFERICO_UART` en la dirección que se le está poniendo.
 
 No tiene `clk` ni `rst`. Es combinacional puro, no guarda estado. Está parametrizado con
 `WIDTH = 32`, el ancho del bus.
@@ -45,10 +45,10 @@ No tiene `clk` ni `rst`. Es combinacional puro, no guarda estado. Está parametr
 
 ## e) Salidas
 
-- `o_addr[1:0]`, `o_we`, `o_wdata[WIDTH-1:0]`: petición ganadora, hacia `PERIFERICO_UART`.
-- `o_rx_rdata[WIDTH-1:0]`: lo que ve `M10_Receptor-UART` de vuelta.
-- `o_tx_rdata[WIDTH-1:0]`: lo que ve `M11_Transmisor-UART` de vuelta.
-- `o_tx_bus_libre`: le avisa a `M11_Transmisor-UART` que este ciclo el bus es suyo.
+- `o_addr[1:0]`, `o_we`, `o_wdata[WIDTH-1:0]`, petición ganadora, hacia `PERIFERICO_UART`.
+- `o_rx_rdata[WIDTH-1:0]`, lo que ve `M10_Receptor-UART` de vuelta.
+- `o_tx_rdata[WIDTH-1:0]`, lo que ve `M11_Transmisor-UART` de vuelta.
+- `o_tx_bus_libre`, le avisa a `M11_Transmisor-UART` que este ciclo el bus es suyo.
 
 ---
 
