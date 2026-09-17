@@ -141,9 +141,14 @@ estándar de bus del enunciado.
 ### Explicación general
 
 El equipo no diseña el núcleo serial en sí, sí el envoltorio, registro CONTROL con `send` y
-`new_rx`, y los registros de datos de transmisión y recepción por separado. Corre fijo a
-115200 baudios. El formato exacto de cada trama hacia la PC lo decide CONTROL_JUEGO, este
-bloque solo mueve bytes de un lado al otro del bus.
+`new_rx`, y los registros de datos de transmisión y recepción por separado. Corre a 115200
+baudios. El divisor quedó como parámetro, pero solo para reescalarlo en simulación, en la tarjeta
+no se toca. El formato exacto de cada trama hacia la PC lo decide CONTROL_JUEGO, este bloque solo
+mueve bytes de un lado al otro del bus.
+
+Adentro de CONTROL_JUEGO hay dos módulos que usan este periférico, el que recibe letras y el que
+manda tramas, y el periférico tiene un solo puerto de bus. Ese reparto lo resuelve un árbitro del
+lado de CONTROL_JUEGO, así que desde acá se ve un único maestro.
 
 ## APP_PC
 
@@ -155,7 +160,7 @@ Ser la terminal remota del jugador, sin ninguna lógica de juego propia.
 
 ### Entradas
 
-- trama recibida desde PERIFERICO_UART, por el mismo puente USB-UART.
+- mensaje recibido desde PERIFERICO_UART, por el mismo puente USB-UART.
 - tecla A-Z presionada por el jugador.
 
 ### Salidas
@@ -167,7 +172,10 @@ Ser la terminal remota del jugador, sin ninguna lógica de juego propia.
 
 Valida que la tecla presionada sea A-Z antes de mandarla, pero esa validación es solo para no
 llenar el enlace de basura, la que de verdad manda es la FPGA. Esta app no decide nada del
-resultado de la partida, solo pinta lo que la trama de la FPGA le dice que pinte.
+resultado de la partida, solo pinta lo que el mensaje de la FPGA le dice que pinte.
+
+Se lanza con `make app`, y `make all` la abre sola después de programar la tarjeta. El detalle
+está en `APP_PC.md`.
 
 ## PERIFERICO_LCD
 
