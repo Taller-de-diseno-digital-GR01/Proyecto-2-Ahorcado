@@ -32,10 +32,10 @@ direcciones y levanta banderas para que alguien más las lea.
 ## d) Entradas
 
 - `clk_i`, `rst_i`.
-- `write_enable_i`: habilitación de escritura del bus, desde `ARBITRO_UART`.
-- `addr_i[1:0]`: dirección del registro, desde `ARBITRO_UART`.
-- `wdata_i[WIDTH-1:0]`: dato a escribir, desde `ARBITRO_UART`.
-- `rx_i`: línea serial cruda, desde el pin B18 de la Basys 3.
+- `write_enable_i`, habilitación de escritura del bus, desde `ARBITRO_UART`.
+- `addr_i[1:0]`, dirección del registro, desde `ARBITRO_UART`.
+- `wdata_i[WIDTH-1:0]`, dato a escribir, desde `ARBITRO_UART`.
+- `rx_i`, línea serial cruda, desde el pin B18 de la Basys 3.
 
 Los puertos del bus llevan sufijo `_i`/`_o` en vez del prefijo `i_`/`o_` que usa el resto del
 repo, porque la sección 3.4.3 los nombra así y la interfaz es de cumplimiento obligatorio.
@@ -48,8 +48,8 @@ núcleos donde `tb_uart_tx` los reescala a 160 y 10 para que la simulación no t
 
 ## e) Salidas
 
-- `rdata_o[WIDTH-1:0]`: contenido del registro apuntado por `addr_i`, hacia `ARBITRO_UART`.
-- `tx_o`: línea serial hacia el pin A18 de la Basys 3.
+- `rdata_o[WIDTH-1:0]`, contenido del registro apuntado por `addr_i`, hacia `ARBITRO_UART`.
+- `tx_o`, línea serial hacia el pin A18 de la Basys 3.
 
 ---
 
