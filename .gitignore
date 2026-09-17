@@ -18,3 +18,5 @@ __pycache__/
 *.pyc
 
 sw/.venv/
+
+presentacion_uart_app.pptx
