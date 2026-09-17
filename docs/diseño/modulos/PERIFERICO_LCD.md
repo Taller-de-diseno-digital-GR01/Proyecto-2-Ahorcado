@@ -108,12 +108,6 @@ Cada escritura al controlador sigue la misma secuencia:
 4. Se espera a que el controlador procese la instrucción. Mientras tanto `RS` y el byte siguen
    quietos, así que el tiempo de hold también se cumple.
 
-```
-RS, DB  ‾‾‾X═══════════ valor estable ═════════════════
-E       ___________/‾‾‾‾‾‾‾‾‾‾\________________________
-           | setup |  ancho E  |      espera de la instrucción
-                               ↑ el LCD captura aquí
-```
 
 El controlador tiene una bandera de ocupado que se puede leer con `R/W=1`, pero eso obliga a que
 las líneas de datos sean bidireccionales. Este periférico nunca lee (`lcd_rw_o = 0`) y en su
