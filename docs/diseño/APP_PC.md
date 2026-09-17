@@ -78,20 +78,43 @@ igual, en `receptor_uart.sv`, pero mandarlo descuadraría la cola de letras espe
 
 ## Cómo se corre
 
+Lo normal es por el `GNUmakefile`, con el mismo `python3` que usa el resto de los targets.
+
+```
+make app                          # busca la tarjeta sola
+make app PUERTO=/dev/ttyUSB1      # puerto a mano
+make all                          # bitstream, programar y abrir la app, en ese orden
+```
+
+`make all` abre la app apenas `make program` termina, así que la terminal queda lista cuando la
+tarjeta ya está corriendo el diseño nuevo. Después de programar, la FPGA arranca en la selección
+de modo y el mensaje de inicio no sale hasta que alguien aprieta `BTN_OK`, así que la app siempre
+alcanza a abrirse antes del primer mensaje.
+
+Directo con Python también sirve, y ahí se tienen las opciones que el target no expone.
+
 ```
 pip install -r sw/requirements.txt
-python3 sw/ahorcado_pc.py            # busca la tarjeta sola
-python3 sw/ahorcado_pc.py -p /dev/ttyUSB1
 python3 sw/ahorcado_pc.py --lista    # muestra los puertos de la tarjeta
+python3 sw/ahorcado_pc.py -b 9600    # otro baudaje, solo para pruebas con un puerto que no sea la tarjeta
 ```
+
+Si se prefiere no instalar `pyserial` en el sistema, un entorno virtual en `sw/.venv/` ya está en
+el `.gitignore`. En ese caso hay que activarlo antes de `make app`, porque el target llama a
+`python3` a secas.
 
 La detección automática busca el FT2232 por VID y PID y se queda con el último puerto, porque el
 chip saca dos canales y el segundo es el del puente USB-UART. El primero es el del JTAG.
 
+La app necesita `termios` para el modo cbreak, así que corre en Linux y en FreeBSD. En Windows no
+está probada.
+
 En FreeBSD hay un detalle de orden. `make connect` pide `kldunload uftdi` para que openFPGALoader
 pueda hablar JTAG, y ese unload se lleva también los `/dev/cuaU*`, así que hay que programar
-primero y volver a cargar `uftdi` antes de abrir la app. En Linux el driver se desprende por
-interfaz y el puerto del UART sobrevive a la programación.
+primero y volver a cargar `uftdi` antes de abrir la app. Por eso en FreeBSD `make all` no llega a
+abrir la terminal si `uftdi` quedó descargado, y lo que funciona es `make program`, después
+`kldload uftdi` y al final `make app`. En Linux el driver se desprende por interfaz y el puerto del
+UART sobrevive a la programación, así que `make all` corre de punta a punta.
 
 ## Pruebas
 
