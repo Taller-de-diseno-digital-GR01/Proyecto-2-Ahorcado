@@ -265,9 +265,14 @@ estándar de bus del enunciado.
 ### Explicación general
 
 El equipo no diseña el núcleo serial en sí, sí el envoltorio, registro CONTROL con `send` y
-`new_rx`, y los registros de datos de transmisión y recepción por separado. Corre fijo a
-115200 baudios. El formato exacto de cada trama hacia la PC lo decide CONTROL_JUEGO, este
-bloque solo mueve bytes de un lado al otro del bus.
+`new_rx`, y los registros de datos de transmisión y recepción por separado. Corre a 115200
+baudios. El divisor quedó como parámetro, pero solo para reescalarlo en simulación, en la tarjeta
+no se toca. El formato exacto de cada trama hacia la PC lo decide CONTROL_JUEGO, este bloque solo
+mueve bytes de un lado al otro del bus.
+
+Adentro de CONTROL_JUEGO hay dos módulos que usan este periférico, el que recibe letras y el que
+manda tramas, y el periférico tiene un solo puerto de bus. Ese reparto lo resuelve un árbitro del
+lado de CONTROL_JUEGO, así que desde acá se ve un único maestro.
 
 ## APP_PC
 
@@ -279,7 +284,7 @@ Ser la terminal remota del jugador, sin ninguna lógica de juego propia.
 
 ### Entradas
 
-- trama recibida desde PERIFERICO_UART, por el mismo puente USB-UART.
+- mensaje recibido desde PERIFERICO_UART, por el mismo puente USB-UART.
 - tecla A-Z presionada por el jugador.
 
 ### Salidas
@@ -291,7 +296,10 @@ Ser la terminal remota del jugador, sin ninguna lógica de juego propia.
 
 Valida que la tecla presionada sea A-Z antes de mandarla, pero esa validación es solo para no
 llenar el enlace de basura, la que de verdad manda es la FPGA. Esta app no decide nada del
-resultado de la partida, solo pinta lo que la trama de la FPGA le dice que pinte.
+resultado de la partida, solo pinta lo que el mensaje de la FPGA le dice que pinte.
+
+Se lanza con `make app`, y `make all` la abre sola después de programar la tarjeta. El detalle
+está en `APP_PC.md`.
 
 ## PERIFERICO_LCD
 
@@ -1015,7 +1023,7 @@ flowchart LR
     DEC_ST --> CNT1
     CNT1 --> CMP1{"CMP >= 6<br/>intentos agotados"}
     CMP1 --> OUT_FSM(["o_intentos_agotados (a M13_FSM)"])
-    CNT1 --> OUT_M11(["o_intentos (a M11)"])
+    CNT1 --> OUT_M11(["o_intentos (a M04 y M11)"])
 ```
 
 ### c) Objetivo del módulo
@@ -1034,7 +1042,7 @@ El módulo está parametrizado con `MAX_INTENTOS = 6`, el máximo que fija el en
 ### e) Salidas
 
 - `o_intentos[$clog2(MAX_INTENTOS+1)-1:0]`, fallos acumulados de la partida, hacia
-  `M11_Transmisor-UART`.
+  `M04_Mostrar-LCD` y `M11_Transmisor-UART`.
 - `o_intentos_agotados`, bandera de seis fallos alcanzados, hacia `M13_FSM`.
 
 ## M13: FSM
@@ -3661,22 +3669,22 @@ prioridad de la FSM, que ante intentos agotados y tiempo en cero en el mismo cic
 ## d) Entradas
 
 - `clk`, `rst`.
-- `i_state[2:0]`: estado actual, desde `M13_FSM`, decide cuál trama toca enviar.
-- `i_modo`: modo de la partida, desde `M13_FSM`, viaja en la trama de inicio.
-- `i_letra_state[1:0]`: resultado de la última letra, desde `M07_Comparador-letra`. La
+- `i_state[2:0]`, estado actual, desde `M13_FSM`, decide cuál trama toca enviar.
+- `i_modo`, modo de la partida, desde `M13_FSM`, viaja en la trama de inicio.
+- `i_letra_state[1:0]`, resultado de la última letra, desde `M07_Comparador-letra`. La
   codificación es `00` fallo, `01` acierto, `10` repetida, y el `11` no se usa.
-- `i_letra_lista`: estrobo de un ciclo que acompaña a `i_letra_state`, desde
+- `i_letra_lista`, estrobo de un ciclo que acompaña a `i_letra_state`, desde
   `M07_Comparador-letra`. Es el que dispara la trama, no el valor de `i_letra_state`, porque dos
   letras seguidas con el mismo resultado no cambian ese bus y sin estrobo la segunda se perdería.
-- `i_intentos[2:0]`: fallos acumulados de la partida, desde `M12_Contador-Intentos`. Llega a 6,
+- `i_intentos[2:0]`, fallos acumulados de la partida, desde `M12_Contador-Intentos`. Llega a 6,
   así que 3 bits alcanzan. Viaja en la trama de letra y además decide la causa de una derrota.
-- `i_word_length[3:0]`: longitud de la palabra escogida, desde `REG_Palabra-escogida`, que en el
+- `i_word_length[3:0]`, longitud de la palabra escogida, desde `REG_Palabra-escogida`, que en el
   top es `word[63:60]` de `M08_LFSR`.
-- `i_mascara[WORD_MAXLEN-1:0]`: posiciones ya reveladas, desde `M07_Comparador-letra`. Es el
+- `i_mascara[WORD_MAXLEN-1:0]`, posiciones ya reveladas, desde `M07_Comparador-letra`. Es el
   patrón que el enunciado pide mandar junto con el resultado de la letra.
-- `i_rdata[WIDTH-1:0]`: lectura de vuelta del bus, de ahí sondea el bit `send` para saber si el
+- `i_rdata[WIDTH-1:0]`, lectura de vuelta del bus, de ahí sondea el bit `send` para saber si el
   periférico sigue ocupado. Llega pasando por `ARBITRO_UART`.
-- `i_bus_libre`: desde `ARBITRO_UART`, dice si este ciclo el bus es suyo.
+- `i_bus_libre`, desde `ARBITRO_UART`, dice si este ciclo el bus es suyo.
 
 El módulo está parametrizado con `WIDTH = 32`, el ancho del bus, y con `WORD_MAXLEN = 12`, el
 mismo valor que usan `M07_Comparador-letra` y el banco de palabras. El byte serial es
@@ -3684,7 +3692,7 @@ mismo valor que usan `M07_Comparador-letra` y el banco de palabras. El byte seri
 
 ## e) Salidas
 
-- `o_write_enable`, `o_addr[1:0]`, `o_wdata[WIDTH-1:0]`: petición hacia el bus, que entra por la cara
+- `o_write_enable`, `o_addr[1:0]`, `o_wdata[WIDTH-1:0]`, petición hacia el bus, que entra por la cara
   del transmisor de `ARBITRO_UART`.
 
 Todo lo que el módulo tiene que decir viaja empaquetado dentro de `o_wdata`, un byte a la vez.
@@ -3962,7 +3970,7 @@ flowchart LR
     DEC_ST --> CNT1
     CNT1 --> CMP1{"CMP >= 6<br/>intentos agotados"}
     CMP1 --> OUT_FSM(["o_intentos_agotados (a M13_FSM)"])
-    CNT1 --> OUT_M11(["o_intentos (a M11)"])
+    CNT1 --> OUT_M11(["o_intentos (a M04 y M11)"])
 ```
 
 ## c) Objetivo del módulo
@@ -3985,7 +3993,7 @@ El módulo está parametrizado con `MAX_INTENTOS = 6`, el máximo que fija el en
 ## e) Salidas
 
 - `o_intentos[$clog2(MAX_INTENTOS+1)-1:0]`, fallos acumulados de la partida, hacia
-  `M11_Transmisor-UART`.
+  `M04_Mostrar-LCD` y `M11_Transmisor-UART`.
 - `o_intentos_agotados`, bandera de seis fallos alcanzados, hacia `M13_FSM`.
 
 ---
@@ -4010,6 +4018,11 @@ por tiempo en un solo estado PERDIO, y `M11_Transmisor-UART` mira si la cuenta l
 ciclo en que el sistema entra a ese estado. Eso le pone una condición a este módulo, la cuenta
 tiene que seguir intacta durante PERDIO. Hoy se cumple porque solo se limpia en CARGA. Si algún día
 se cambiara para limpiar al salir de JUEGO, la trama de fin diría siempre que se perdió por tiempo.
+
+`M04_Mostrar-LCD` también recibe la cuenta, y en la pantalla de juego la muestra como intentos
+restantes en el sufijo ` I:n`. Allá tampoco hay restador, el dígito sale de una tabla directa sobre
+los fallos acumulados. Cuando la cuenta cambia, ese módulo lo nota comparando contra su última foto
+y repinta solo, así que acá no hace falta ningún aviso aparte.
 
 De `M13_FSM` recibe `i_state`, y lo usa solo para limpiar la cuenta al entrar a CARGA, o sea al
 arrancar cada partida nueva.
@@ -4106,7 +4119,7 @@ flowchart LR
 
     CNT --> CMP_FIN{"CMP >= 6"}
     CMP_FIN --> OUT_AG(["o_intentos_agotados (a M13_FSM)"])
-    CNT --> OUT_INT(["o_intentos (a M11)"])
+    CNT --> OUT_INT(["o_intentos (a M04 y M11)"])
 ```
 
 `clk` y `rst` entran a `CONT_INTENTOS` aunque no se dibujen, por el mismo criterio del resto de
@@ -4124,7 +4137,7 @@ Ningún puerto de este módulo sale de la FPGA, así que no le corresponde ningu
 - `i_try`, desde `o_try` de `M07_Comparador-letra`.
 - `i_state`, desde `M13_FSM`.
 - `o_intentos_agotados`, hacia `M13_FSM`.
-- `o_intentos`, hacia `i_intentos` de `M11_Transmisor-UART`.
+- `o_intentos`, hacia `i_intentos` de `M04_Mostrar-LCD` y de `M11_Transmisor-UART`.
 
 Como en los demás módulos, el diagrama de conexiones por chips que pide el método corresponde a un
 montaje con integrados discretos, y en este diseño la traducción es la lista de puertos del
@@ -4462,10 +4475,10 @@ direcciones y levanta banderas para que alguien más las lea.
 ## d) Entradas
 
 - `clk_i`, `rst_i`.
-- `write_enable_i`: habilitación de escritura del bus, desde `ARBITRO_UART`.
-- `addr_i[1:0]`: dirección del registro, desde `ARBITRO_UART`.
-- `wdata_i[WIDTH-1:0]`: dato a escribir, desde `ARBITRO_UART`.
-- `rx_i`: línea serial cruda, desde el pin B18 de la Basys 3.
+- `write_enable_i`, habilitación de escritura del bus, desde `ARBITRO_UART`.
+- `addr_i[1:0]`, dirección del registro, desde `ARBITRO_UART`.
+- `wdata_i[WIDTH-1:0]`, dato a escribir, desde `ARBITRO_UART`.
+- `rx_i`, línea serial cruda, desde el pin B18 de la Basys 3.
 
 Los puertos del bus llevan sufijo `_i`/`_o` en vez del prefijo `i_`/`o_` que usa el resto del
 repo, porque la sección 3.4.3 los nombra así y la interfaz es de cumplimiento obligatorio.
@@ -4478,8 +4491,8 @@ núcleos donde `tb_uart_tx` los reescala a 160 y 10 para que la simulación no t
 
 ## e) Salidas
 
-- `rdata_o[WIDTH-1:0]`: contenido del registro apuntado por `addr_i`, hacia `ARBITRO_UART`.
-- `tx_o`: línea serial hacia el pin A18 de la Basys 3.
+- `rdata_o[WIDTH-1:0]`, contenido del registro apuntado por `addr_i`, hacia `ARBITRO_UART`.
+- `tx_o`, línea serial hacia el pin A18 de la Basys 3.
 
 ---
 
@@ -4722,9 +4735,9 @@ registro de control para que un maestro no le borre el bit al otro.
 
 ## d) Entradas
 
-- `i_rx_addr[1:0]`, `i_rx_we`, `i_rx_wdata[WIDTH-1:0]`: petición de `M10_Receptor-UART`.
-- `i_tx_addr[1:0]`, `i_tx_we`, `i_tx_wdata[WIDTH-1:0]`: petición de `M11_Transmisor-UART`.
-- `i_rdata[WIDTH-1:0]`: lo que devuelve `PERIFERICO_UART` en la dirección que se le está poniendo.
+- `i_rx_addr[1:0]`, `i_rx_we`, `i_rx_wdata[WIDTH-1:0]`, petición de `M10_Receptor-UART`.
+- `i_tx_addr[1:0]`, `i_tx_we`, `i_tx_wdata[WIDTH-1:0]`, petición de `M11_Transmisor-UART`.
+- `i_rdata[WIDTH-1:0]`, lo que devuelve `PERIFERICO_UART` en la dirección que se le está poniendo.
 
 No tiene `clk` ni `rst`. Es combinacional puro, no guarda estado. Está parametrizado con
 `WIDTH = 32`, el ancho del bus.
@@ -4733,10 +4746,10 @@ No tiene `clk` ni `rst`. Es combinacional puro, no guarda estado. Está parametr
 
 ## e) Salidas
 
-- `o_addr[1:0]`, `o_we`, `o_wdata[WIDTH-1:0]`: petición ganadora, hacia `PERIFERICO_UART`.
-- `o_rx_rdata[WIDTH-1:0]`: lo que ve `M10_Receptor-UART` de vuelta.
-- `o_tx_rdata[WIDTH-1:0]`: lo que ve `M11_Transmisor-UART` de vuelta.
-- `o_tx_bus_libre`: le avisa a `M11_Transmisor-UART` que este ciclo el bus es suyo.
+- `o_addr[1:0]`, `o_we`, `o_wdata[WIDTH-1:0]`, petición ganadora, hacia `PERIFERICO_UART`.
+- `o_rx_rdata[WIDTH-1:0]`, lo que ve `M10_Receptor-UART` de vuelta.
+- `o_tx_rdata[WIDTH-1:0]`, lo que ve `M11_Transmisor-UART` de vuelta.
+- `o_tx_bus_libre`, le avisa a `M11_Transmisor-UART` que este ciclo el bus es suyo.
 
 ---
 
