@@ -253,3 +253,51 @@ Conexiones en `src/design/top.sv`, instancia `u_periferico_uart`:
 
 Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño
 que se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.
+
+---
+
+## Verificación
+
+Son dos testbenches, uno para el envoltorio de registros y otro para los dos núcleos. Los núcleos
+no llevan ficha propia porque son los `.vhd` que dio el profesor, traducidos sin cambiarles la
+máquina de estados, así que lo que se verifica de ellos es que la traducción quedó fiel.
+
+`src/sim/tb_periferico_uart.sv` es autoverificable, corre con `make sim TB=periferico_uart` y
+reporta 17 pruebas sin fallos. Instancia el periférico completo con `TICKS_BIT = 160` y
+`TICKS_X16 = 10` para que la simulación no tarde una eternidad, y cruza `tx_o` contra `rx_i` para
+que cada byte que sale vuelva a entrar. Comprueba:
+
+- Después del reset el control queda en ceros y los dos registros de datos también.
+- La dirección `11` no se usa y devuelve ceros.
+- El registro de transmisión guarda lo que le escriben, y escribirlo no toca el control.
+- El de recepción también se deja escribir, que es lo que pide el enunciado aunque en la práctica
+  solo lo use un testbench.
+- `send` se lee alto apenas se escribe y sigue alto mientras el byte va saliendo, o sea que sirve
+  de bandera de ocupado y no solo de orden.
+- El byte da la vuelta, levanta `new_rx` y aparece entero en el registro de recepción, con `send`
+  ya bajado solo al terminar, que es el comportamiento WC.
+- Escribir cero en el bit 1 limpia `new_rx` pero deja el dato recibido donde estaba.
+- Un segundo byte da la vuelta con su valor, o sea que el periférico se rearma.
+
+La última prueba es la que motivó `ARBITRO_UART`. Con un byte esperando que lo lean, escribir solo
+`send` en el registro de control borra `new_rx`, y esa es exactamente la escritura que hace
+`M11_Transmisor-UART` cada vez que manda una trama.
+
+`src/sim/tb_uart_tx.sv` corre con `make sim TB=uart_tx` y reporta 18 pruebas sin fallos. Usa
+`TICKS_BIT = 160` y `TICKS_X16 = 10` para que los 16 ticks del receptor calcen exactos con el bit
+del transmisor, así que el desfase real de 54 contra 54.25 a 100 MHz no se verifica ahí, la cuenta
+de ese margen está en la h). Instancia `uart_tx` como DUT y `uart_rx` como espejo. Comprueba:
+
+- El reset deja la línea en reposo alto y sin nada que mandar no se mueve.
+- La A sale con su bit de arranque, ocho de dato y el de parada, y el espejo la reconstruye entera.
+- Un byte de puros ceros no se confunde con el bit de arranque, y uno de puros unos no se come el
+  de parada.
+- Cambiar `i_dato` a mitad de la transmisión no corrompe el byte que ya iba saliendo.
+- `o_listo` no se queda pegado y dura exactamente un ciclo por byte.
+- Un par de bytes pegados sale completo.
+
+Las dos últimas son las de la ventana muerta descrita arriba. Una demuestra que un pulso de un
+ciclo en `i_enviar` que caiga en esa ventana se pierde sin dejar rastro, y la otra que el nivel
+sostenido sí la atraviesa, que es la razón de que `send` se maneje sostenido y no como pulso.
+
+`make synth` pasa sin `Latch inferred` para `periferico_uart`, `uart_tx` y `uart_rx`.

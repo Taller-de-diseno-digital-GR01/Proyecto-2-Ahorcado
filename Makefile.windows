@@ -21,15 +21,14 @@
 #   - Vivado, opcional, solo para 'fpga-bitstream'/'fpga-program' -> agregar <instalacion de
 #     Vivado>/bin al PATH, o abrir esta terminal desde una "Vivado Tcl Shell".
 #
-# La síntesis + bitstream + programación del *proyecto completo* (yosys + nextpnr-xilinx +
-# prjxray, el toolchain "openXC7" que usa ./GNUmakefile para no depender de Vivado) no tiene un
-# build nativo confiable para Windows todavía; 'check-fpga-toolchain' explica las alternativas
-# (WSL o Vivado) para ese caso.
-#
-# Para probar un módulo suelto en la Basys3 sin esperar a que exista un top.sv integrado, sí hay
-# flujo nativo acá: 'fpga-bitstream'/'fpga-program' usan Vivado en modo batch (sin .xpr) sobre un
-# harness de un solo módulo (ver src/fpga/harness/CONVENCION.txt) más las constraints de
-# src/fpga/basys3.xdc. Ver 'make -f Makefile.windows help'.
+# El flujo real del proyecto (yosys + nextpnr-xilinx + prjxray, el toolchain "openXC7" que usa
+# ./GNUmakefile para no depender de Vivado) no tiene un build nativo confiable para Windows
+# todavía. En Windows nativo la alternativa es Vivado: 'fpga-bitstream'/'fpga-program' sintetizan,
+# implementan y programan con Vivado en modo batch (sin .xpr), y sirven tanto para el *proyecto
+# completo* (SYNTH_TOP=top, el top-level real de src/design/, default si no se indica nada) como
+# para probar un módulo suelto contra un harness de src/fpga/harness/ (ver
+# src/fpga/harness/CONVENCION.txt) mientras no interesa arrastrar el resto del diseño. Ver
+# 'make -f Makefile.windows help'.
 
 DESIGN_DIR  := src/design
 SIM_DIR     := src/sim
@@ -53,15 +52,23 @@ TBS         := $(patsubst $(SIM_DIR)/tb_%.sv,%,$(TB_SRCS))
 TB ?= $(firstword $(TBS))
 SYNTH_TOP ?= top
 
-# Fuentes para 'fpga-bitstream': por defecto solo el harness de SYNTH_TOP (ver
-# src/fpga/harness/CONVENCION.txt). Si ese harness instancia algún módulo de src/design/, hay
-# que agregarlo a mano, ej.:
-#   make -f Makefile.windows fpga-bitstream SYNTH_TOP=top_marcador \
-#        FPGA_SRCS="src/fpga/harness/top_marcador.sv src/design/marcador.sv"
-# A propósito no se usa $(DESIGN_SRCS) completo acá: para probar un módulo suelto no hace falta
-# arrastrar el resto del diseño, y si otro módulo no relacionado tiene un error de sintaxis (ver
-# 'sim'/'synth'), no tiene por qué bloquear esta prueba.
+# Fuentes para 'fpga-bitstream'. Por defecto depende de SYNTH_TOP:
+#   - SYNTH_TOP=top (el default): $(DESIGN_SRCS) completo, es decir el proyecto real
+#     (src/design/top.sv y todo lo que instancia), para sintetizar + implementar + generar el
+#     bitstream completo con Vivado como alternativa a openXC7 en Windows.
+#   - cualquier otro valor: se asume un harness de un solo módulo (ver
+#     src/fpga/harness/CONVENCION.txt), y FPGA_SRCS por defecto es solo ese harness. Si el
+#     harness instancia algún módulo de src/design/, hay que agregarlo a mano, ej.:
+#       make -f Makefile.windows fpga-bitstream SYNTH_TOP=top_marcador \
+#            FPGA_SRCS="src/fpga/harness/top_marcador.sv src/design/marcador.sv"
+#     A propósito no se arrastra $(DESIGN_SRCS) completo en este caso: para probar un módulo
+#     suelto no hace falta el resto del diseño, y si otro módulo no relacionado tiene un error de
+#     sintaxis (ver 'sim'/'synth'), no tiene por qué bloquear esta prueba puntual.
+ifeq ($(SYNTH_TOP),top)
+FPGA_SRCS ?= $(DESIGN_SRCS)
+else
 FPGA_SRCS ?= $(HARNESS_DIR)/$(SYNTH_TOP).sv
+endif
 
 VVP_OUT      := $(BUILD_DIR)/tb_$(TB).vvp
 VCD_OUT      := $(BUILD_DIR)/tb_$(TB).vcd
@@ -87,11 +94,13 @@ help:
 	@echo "make -f Makefile.windows list                 lista los testbenches disponibles"
 	@echo "make -f Makefile.windows clean"
 	@echo ""
-	@echo "Probar un modulo suelto en la Basys3 (sin top.sv integrado, ver src/fpga/harness/CONVENCION.txt):"
+	@echo "Sintesis + implementacion + bitstream con Vivado (alternativa a openXC7 en Windows nativo):"
+	@echo "make -f Makefile.windows fpga-bitstream        proyecto completo (SYNTH_TOP=top por defecto)"
+	@echo "make -f Makefile.windows fpga-program          carga ese .bit a la Basys3 por JTAG (Vivado)"
+	@echo "Tambien sirve para probar un modulo suelto sin top.sv integrado, contra un harness de"
+	@echo "src/fpga/harness/ (ver CONVENCION.txt ahi):"
 	@echo "make -f Makefile.windows fpga-bitstream SYNTH_TOP=<harness> FPGA_SRCS=\"arch1.sv arch2.sv ...\""
-	@echo "                               sintetiza + implementa + genera el .bit con Vivado (sin .xpr)"
 	@echo "make -f Makefile.windows fpga-program SYNTH_TOP=<harness>"
-	@echo "                               carga el .bit generado arriba a la Basys3 por JTAG (Vivado)"
 	@echo "make -f Makefile.windows check-vivado          revisa que 'vivado' este en el PATH"
 	@echo ""
 	@echo "Testbenches disponibles: $(TBS)"
@@ -195,21 +204,22 @@ synth: $(DESIGN_SRCS)
 	echo "Netlist generado en $(NETLIST_OUT)"
 
 # bitstream/program/connect existen solo para que "make -f Makefile.windows bitstream" (etc.) de
-# un mensaje claro en vez de "target not found" -- la Basys3 se sintetiza/programa con
-# ./GNUmakefile (FreeBSD/WSL), no desde acá. Ver el comentario del encabezado.
+# un mensaje claro en vez de "target not found" -- el flujo real del proyecto con openXC7 (targets
+# 'bitstream'/'program'/'connect' de ./GNUmakefile) no tiene build nativo en Windows. La
+# alternativa nativa en Windows es Vivado, ver 'fpga-bitstream'/'fpga-program' más abajo.
 check-fpga-toolchain:
-	@echo "La sintesis + bitstream + programacion de la Basys3 en este proyecto usa"
-	@echo "yosys + nextpnr-xilinx + prjxray (toolchain openXC7, ver ./GNUmakefile), sin Vivado."
-	@echo "Esa combinacion no tiene un build nativo confiable para Windows todavia. Opciones:"
+	@echo "El flujo real del proyecto (yosys + nextpnr-xilinx + prjxray, toolchain openXC7, ver"
+	@echo "./GNUmakefile) no tiene un build nativo confiable para Windows todavia. Opciones:"
 	@echo "  1) Instalar WSL (wsl --install) y correr ahi el flujo de ./GNUmakefile."
-	@echo "  2) Usar Vivado en Windows para generar el .bit, fuera del flujo de este proyecto."
+	@echo "  2) Usar Vivado en Windows: 'make -f Makefile.windows fpga-bitstream' / 'fpga-program'"
+	@echo "     sintetiza, implementa y programa el proyecto completo (o un modulo suelto) sin"
+	@echo "     depender de openXC7."
 	@exit 1
 
 bitstream program connect: check-fpga-toolchain
 
-# Diagnostico de Vivado, solo hace falta para 'fpga-bitstream'/'fpga-program' (prueba de un
-# modulo suelto, ver el comentario de FPGA_SRCS arriba). El proyecto completo sigue yendo por
-# 'check-fpga-toolchain' (openXC7 via WSL) o por Vivado fuera de este Makefile.
+# Diagnostico de Vivado, hace falta para 'fpga-bitstream'/'fpga-program' (proyecto completo o
+# prueba de un modulo suelto, ver el comentario de FPGA_SRCS arriba).
 check-vivado:
 	@command -v $(VIVADO) >/dev/null 2>&1 || { \
 		echo "ERROR: '$(VIVADO)' no esta en el PATH."; \
@@ -221,10 +231,11 @@ check-vivado:
 $(FPGA_BUILD_DIR):
 	mkdir -p $(FPGA_BUILD_DIR)
 
-# Sintesis + implementacion + bitstream de un modulo individual con Vivado, flujo "non-project"
-# (sin .xpr): sirve para probarlo solo en la Basys3 mientras no existe un top.sv integrado.
-# FPGA_SRCS es el harness de ese modulo (src/fpga/harness/<algo>.sv, con las señales que no van
-# a un pin fisico hardcodeadas a mano, ver CONVENCION.txt en esa carpeta) mas cualquier .sv de
+# Sintesis + implementacion + bitstream con Vivado, flujo "non-project" (sin .xpr). Con
+# SYNTH_TOP=top (default) arma el proyecto completo a partir de $(DESIGN_SRCS). Con cualquier
+# otro SYNTH_TOP, arma un modulo individual mientras no existe un top.sv integrado: FPGA_SRCS es
+# entonces el harness de ese modulo (src/fpga/harness/<algo>.sv, con las señales que no van a un
+# pin fisico hardcodeadas a mano, ver CONVENCION.txt en esa carpeta) mas cualquier .sv de
 # src/design/ que ese harness instancie.
 ifeq ($(strip $(FPGA_SRCS)),)
 $(FPGA_BIT):

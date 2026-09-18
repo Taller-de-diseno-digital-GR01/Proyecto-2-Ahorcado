@@ -1,6 +1,3 @@
-# El muñeco y los colores, ver docs/diseño/APP_PC.md
-# Se dibuja a partir de los intentos que reportó la FPGA, la app no cuenta nada por su cuenta.
-
 import os
 import sys
 

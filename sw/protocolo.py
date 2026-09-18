@@ -1,7 +1,3 @@
-# Codificación y decodificación de los mensajes del enlace, ver docs/diseño/APP_PC.md
-# El formato lo fija src/design/transmisor_uart.sv, si cambia allá hay que cambiarlo acá.
-# Este archivo es puro, no toca el puerto ni la pantalla, y por eso se puede probar sin tarjeta.
-
 from collections import namedtuple
 
 # Nombres resumidos
