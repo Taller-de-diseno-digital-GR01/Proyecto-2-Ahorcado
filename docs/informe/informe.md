@@ -43,7 +43,7 @@ Python funciona como terminal remota por UART a 115 200 baudios. El estado se mu
 16x2 (PmodCLP, controlador HD44780/KS0066U), en cuatro displays de 7 segmentos, en dos LEDs de
 estado y en un buzzer.
 
-La solución se organizó en 13 módulos numerados (M01–M13), más el periférico LCD, el periférico
+La solución se organizó en 14 módulos numerados (M01–M13), más el periférico LCD, el periférico
 UART, un árbitro de bus UART y la ROM de palabras. El flujo de síntesis, colocación, ruteo y
 generación del bitstream se hizo con el toolchain abierto openXC7 (yosys + nextpnr-xilinx +
 prjxray), sin Vivado. El diseño completo cierra timing a 100 MHz con **127,7 MHz de frecuencia
@@ -1164,7 +1164,15 @@ La palabra elegida por el LFSR tiene 5 letras y no contiene `A`. Por eso la prim
 fallo, con `fallos = 1` y máscara `111111100000`: las 5 posiciones siguen ocultas y los 7 bits altos
 son el relleno.
 
-<!-- FIGURA_TIMESIM -->
+La figura muestra esa misma transacción en la simulación temporizada. El eje empieza en el bit de
+arranque de la `A` sobre `rx_i` (1,540 ms de simulación). La trama de la `A` (`0x41`) dura ~87 µs.
+Unos 92 µs después del inicio, la FPGA empieza a responder por `tx_o` con la trama LETRA de 5 bytes
+(`4C 00 01 E0 0F`), que termina ~591 µs después. `state_led = 01` confirma que el sistema está en
+`JUEGO` durante toda la transacción. Los flancos de `tx_o` caen en instantes como
+`1 632 057 693 ps`, fuera de la rejilla de 10 ns del reloj: esos ~7,7 ns son el retardo real del
+flip-flop de salida, el ruteo y el OBUF según el SDF, que en una simulación RTL no aparecen.
+
+![Simulación post-implementación: recepción de la A por rx_i y respuesta LETRA por tx_o](img/timesim_letra.svg)
 
 **Advertencias de xsim.** Durante la simulación xsim reporta 40 violaciones de setup/hold (20 flip-flops,
 una de cada tipo), todas entre 210,18 y 210,25 ns: justo cuando el testbench suelta `rst`. Afectan a
