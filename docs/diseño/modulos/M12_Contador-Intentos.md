@@ -185,3 +185,24 @@ Ningún puerto de este módulo sale de la FPGA, así que no le corresponde ningu
 Como en los demás módulos, el diagrama de conexiones por chips que pide el método corresponde a un
 montaje con integrados discretos, y en este diseño la traducción es la lista de puertos del
 instanciado. Falta confirmarlo con el profesor.
+
+---
+
+## Verificación
+
+`src/sim/tb_contador_intentos.sv` es autoverificable, corre con `make sim TB=contador_intentos` y
+reporta 14 pruebas sin fallos. En cada paso compara a la vez `o_intentos` y `o_intentos_agotados`,
+porque el error típico de este módulo es que la cuenta quede bien y la bandera no. Comprueba:
+
+- Después del reset la cuenta queda en cero.
+- Sin pulsos de fallo la cuenta no se mueve.
+- Los seis fallos uno por uno, con la bandera subiendo recién en el sexto.
+- Tres fallos de más después del sexto, que es la prueba de la saturación. Sin ella la cuenta daría
+  la vuelta a cero y apagaría `o_intentos_agotados` justo después de haberlo levantado.
+- Que CARGA limpie la cuenta de la partida anterior y que la partida nueva vuelva a contar bien.
+
+Las dos últimas son las carreras de prioridad de la tabla de la h). El `rst` tiene que ganarle a un
+`i_try` que llegue en el mismo ciclo, y CARGA también, porque si no la partida nueva arrancaría con
+un fallo heredado.
+
+`make synth SYNTH_TOP=contador_intentos` pasa sin `Latch inferred` en el log.
