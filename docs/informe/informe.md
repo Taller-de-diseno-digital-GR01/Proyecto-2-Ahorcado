@@ -48,9 +48,8 @@ UART, un árbitro de bus UART y la ROM de palabras. El flujo de síntesis, coloc
 generación del bitstream se hizo con el toolchain abierto openXC7 (yosys + nextpnr-xilinx +
 prjxray), sin Vivado. El diseño completo cierra timing a 100 MHz con **127,7 MHz de frecuencia
 máxima** (holgura de 2,17 ns), usa menos del 5 % de los LUT del dispositivo y la síntesis reporta
-**cero latches inferidos**. De 18 testbenches autoverificables, 14 compilan y pasan (397
-verificaciones, 0 fallos) y 4 no compilan en Icarus Verilog 12 por detalles del propio testbench
-(sección 10.2). Las 23 pruebas unitarias de la aplicación de PC pasan.
+**cero latches inferidos**. Los 19 testbenches autoverificables compilan y pasan (469
+verificaciones, 0 fallos). Las 23 pruebas unitarias de la aplicación de PC pasan.
 
 ---
 
@@ -836,28 +835,28 @@ Resultado de `make test` (Icarus Verilog 12.0), ejecutado sobre la rama `develop
 | `tb_temporizador` | `temporizador` | 138 | ✅ pasa |
 | `tb_transmisor_uart` | `transmisor_uart` | 28 | ✅ 0 fallos |
 | `tb_top` | sistema completo | 9 | ✅ 0 fallos |
-| **Subtotal** | | **397** | **0 fallos** |
-| `tb_Estado` | `Estado` | — | ❌ no compila |
-| `tb_marcador` | `marcador` | — | ❌ no compila |
-| `tb_mostrar_lcd` | `mostrar_lcd` | — | ❌ no compila |
-| `tb_uart_tx` | `uart_tx` | — | ❌ no compila |
+| `tb_top_timesim` | sistema completo, solo por puertos (sección 10.7) | 17 | ✅ 0 fallos |
+| `tb_Estado` | `Estado` | 8 | ✅ pasa |
+| `tb_marcador` | `marcador` | 16 | ✅ pasa |
+| `tb_mostrar_lcd` | `mostrar_lcd` | 13 | ✅ pasa |
+| `tb_uart_tx` | `uart_tx` | 18 | ✅ 0 fallos |
+| **Total** | | **469** | **0 fallos** |
 | App de PC (`make test-app`) | `protocolo.py`, `partida.py` | 23 | ✅ OK |
 
-### 10.2 Testbenches que no compilan
+### 10.2 Testbenches corregidos
 
-Los cuatro fallos son del testbench, no del RTL, y la causa de cada uno está identificada:
+Cuatro testbenches habían quedado sin compilar en Icarus Verilog 12 después de cambios en el RTL.
+En todos los casos el error estaba en el testbench, no en el diseño, y se corrigieron:
 
-| Testbench | Error de Icarus | Causa | Corrección |
-|---|---|---|---|
-| `tb_Estado` | `Unknown module type: M05_Estado` | El módulo se llama `Estado` en `Estado.sv` | Instanciar `Estado` |
-| `tb_marcador` | `syntax error` línea 8 | Declara una señal llamada `time`, palabra reservada de Verilog | Renombrar la señal (p. ej. `time_value`) |
-| `tb_mostrar_lcd` | `Malformed statement` líneas 300–342 | Referencia `HOME_ENC`/`IDLE_ENC`, nombres de una versión anterior de la FSM interna | Usar `HOME`/`IDLE` |
-| `tb_uart_tx` | `Cannot "return" from tasks` | `return` dentro de una `task`, no soportado por Icarus 12 | Reemplazar por `disable` o un `if/else` |
+| Testbench | Problema | Corrección |
+|---|---|---|
+| `tb_Estado` | Instanciaba `M05_Estado`, pero el módulo se llama `Estado`. Además esperaba que `101` (el antiguo `PERDIO_TIEMPO`) encendiera la salida de resultado. | Instanciar `Estado`. Ahora `101` es un código sin usar y debe volver a `00` (tabla 4.3). |
+| `tb_marcador` | Declaraba una señal llamada `time`, que es palabra reservada. Instanciaba `M01_Marcador`, con el puerto `time_t` de 7 bits, y esperaba los segmentos en orden `abcdefg`. | Instanciar `marcador` con `time_value[7:0]` en BCD, como lo entrega el temporizador, y esperar el orden `gfedcba` (`seg[0] = a`) del diseño y del XDC. |
+| `tb_mostrar_lcd` | Icarus sustituye los argumentos de una macro también dentro de los strings. El argumento `restantes` de `CHECK_SCREEN_JUEGO` aparecía en el texto del mensaje de fallo y rompía el string. | Renombrar el argumento a `digito_int`. |
+| `tb_uart_tx` | Usaba `return` dentro de una `task`, que Icarus 12 no acepta. | Reemplazarlo por un `if/else`. |
 
-El comportamiento de `Estado` y `marcador` sí se probó en hardware con el *harness*
-`top_marcador_intentos_ganadas.sv`. El de `mostrar_lcd` se probó con `top_mostrar_lcd.sv` y de forma
-indirecta en `tb_top`. El núcleo `uart_tx` está cubierto indirectamente por `tb_periferico_uart` y
-`tb_top`.
+A los testbenches que solo imprimían el resultado se les agregó `$fatal` cuando hay fallos, para que
+`make test` también falle.
 
 ### 10.3 Evidencia de simulación (extractos)
 
@@ -1147,8 +1146,8 @@ se corregiría con un LFSR de más bits cuyo período sea múltiplo de 32.
 **Cobertura.** Los módulos de control (FSM, comparador, intentos, temporizador, LFSR, UART) tienen
 testbenches con casos de borde: saturación del contador, prioridad de la FSM ante eventos
 simultáneos, letra repetida, letra fuera de rango, byte durante una trama en curso, derrota por
-tiempo con un intento restante. Los huecos de la verificación automática son los 4 testbenches que
-no compilan (sección 10.2) y la simulación post-implementación (sección 10.7).
+tiempo con un intento restante. Los 19 testbenches autoverificables pasan, incluidos los cuatro
+que se corrigieron (sección 10.2).
 
 ---
 
@@ -1190,8 +1189,6 @@ no compilan (sección 10.2) y la simulación post-implementación (sección 10.7
 
 - **No se hizo la simulación post-implementación temporizada** que pide el enunciado (sección
   10.7).
-- Cuatro testbenches (`Estado`, `marcador`, `mostrar_lcd`, `uart_tx`) no compilan en Icarus por
-  errores del propio testbench (sección 10.2).
 - El LCD no muestra la causa de la derrota (solo `PERDISTE`), porque la FSM no la distingue. La
   causa sí llega a la PC.
 - La palabra secreta no se revela al perder, ni en la LCD ni en la PC.
@@ -1220,7 +1217,7 @@ no compilan (sección 10.2) y la simulación post-implementación (sección 10.7
 3. **La simulación no reemplaza la prueba en hardware.** El problema del primer carácter de la LCD
    (P1) no aparecía en simulación, porque el modelo cumplía exactamente los tiempos del datasheet.
    Tampoco aparecía en simulación el bitstream en blanco (P10).
-4. **Los testbenches autoverificables pagan su costo.** Los 397 chequeos automáticos permitieron
+4. **Los testbenches autoverificables pagan su costo.** Los 469 chequeos automáticos permitieron
    refactorizar la FSM (unir las dos derrotas) y detectar de inmediato sus efectos en el transmisor
    (issue #27). Los testbenches que dejaron de compilar al renombrar señales muestran también que la
    verificación tiene que mantenerse junto con el RTL, idealmente corriendo `make test` antes de cada

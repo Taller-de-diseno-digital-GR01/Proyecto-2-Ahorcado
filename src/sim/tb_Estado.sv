@@ -9,7 +9,7 @@ module tb_M05_Estado;
 
     integer errores;
 
-    M05_Estado dut (
+    Estado dut (
         .clk       (clk),
         .rst       (rst),
         .state     (state),
@@ -75,13 +75,11 @@ module tb_M05_Estado;
         // GANO
         probar_estado(3'b011, 2'b10);
 
-        // PERDIO_INTENTOS
+        // PERDIO (un solo estado para derrota por intentos y por tiempo)
         probar_estado(3'b100, 2'b10);
 
-        // PERDIO_TIEMPO
-        probar_estado(3'b101, 2'b10);
-
-        // Estado inválido -> vuelve a visualización de selección
+        // Estados no usados -> vuelven a visualización de selección
+        probar_estado(3'b101, 2'b00);
         probar_estado(3'b110, 2'b00);
         probar_estado(3'b111, 2'b00);
 
@@ -94,6 +92,8 @@ module tb_M05_Estado;
             $display("M05: SE ENCONTRARON %0d ERRORES.", errores);
 
         $display("============================================");
+
+        if (errores != 0) $fatal(1, "tb_Estado termino con fallos");
 
         #20;
         $finish;

@@ -5,7 +5,7 @@ module tb_marcador;
     logic clk;
     logic rst;
 
-    logic [6:0] time;
+    logic [7:0] time_value; // BCD empacado {decenas, unidades}, como lo entrega M03
     logic [6:0] num_ganadas;
 
     logic [6:0] seg;
@@ -16,12 +16,12 @@ module tb_marcador;
 
     // Se usa un contador pequeño únicamente para acelerar la simulación.
     // El diseño real conserva REFRESH_BITS = 18.
-    M01_Marcador #(
+    marcador #(
         .REFRESH_BITS(4)
     ) dut (
         .clk         (clk),
         .rst         (rst),
-        .time_t        (time_t),
+        .time_value  (time_value),
         .num_ganadas (num_ganadas),
         .seg         (seg),
         .an          (an),
@@ -40,16 +40,17 @@ module tb_marcador;
     function automatic [6:0] seg_esperado(input integer digito);
         begin
             case (digito)
-                0: seg_esperado = 7'b0000001;
-                1: seg_esperado = 7'b1001111;
-                2: seg_esperado = 7'b0010010;
-                3: seg_esperado = 7'b0000110;
-                4: seg_esperado = 7'b1001100;
-                5: seg_esperado = 7'b0100100;
-                6: seg_esperado = 7'b0100000;
-                7: seg_esperado = 7'b0001111;
+                // gfedcba (seg[0] = a), activos en bajo, mismo orden que basys3.xdc
+                0: seg_esperado = 7'b1000000;
+                1: seg_esperado = 7'b1111001;
+                2: seg_esperado = 7'b0100100;
+                3: seg_esperado = 7'b0110000;
+                4: seg_esperado = 7'b0011001;
+                5: seg_esperado = 7'b0010010;
+                6: seg_esperado = 7'b0000010;
+                7: seg_esperado = 7'b1111000;
                 8: seg_esperado = 7'b0000000;
-                9: seg_esperado = 7'b0000100;
+                9: seg_esperado = 7'b0010000;
                 default: seg_esperado = 7'b1111111;
             endcase
         end
@@ -123,7 +124,7 @@ module tb_marcador;
         integer g_decenas;
         integer g_unidades;
         begin
-            time_t        = tiempo_prueba;
+            time_value  = {4'(tiempo_prueba / 10), 4'(tiempo_prueba % 10)};
             num_ganadas = ganadas_prueba;
 
             // Esperar a que los registros internos capturen los datos
@@ -161,12 +162,12 @@ module tb_marcador;
 
     initial begin
 
-        $dumpfile("tb_M01_Marcador.vcd");
-        $dumpvars(0, tb_M01_Marcador);
+        $dumpfile("tb_marcador.vcd");
+        $dumpvars(0, tb_marcador);
 
         clk         = 1'b0;
         rst         = 1'b1;
-        time_t      = 7'd0;
+        time_value  = 8'h00;
         num_ganadas = 7'd0;
         errores     = 0;
 
@@ -227,6 +228,8 @@ module tb_marcador;
             );
 
         $display("============================================");
+
+        if (errores != 0) $fatal(1, "tb_marcador termino con fallos");
 
         #50;
         $finish;

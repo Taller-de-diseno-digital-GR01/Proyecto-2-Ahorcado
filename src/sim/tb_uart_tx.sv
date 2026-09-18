@@ -98,21 +98,22 @@ module tb_uart_tx;
     logic [7:0] visto;
     bit hubo;
     esperar_arranque(hubo);
+    // if/else en vez de return: Icarus 12 no acepta return dentro de una task
     if (!hubo) begin
       anotar(nombre, 1'b0, "la linea nunca arranco, el pulso de i_enviar se perdio");
-      return;
-    end
-    repeat (TICKS_BIT/2) @(posedge clk_tb);
-    arranque = linea;
-    for (int i = 0; i < 8; i++) begin
+    end else begin
+      repeat (TICKS_BIT/2) @(posedge clk_tb);
+      arranque = linea;
+      for (int i = 0; i < 8; i++) begin
+        repeat (TICKS_BIT) @(posedge clk_tb);
+        visto[i] = linea;
+      end
       repeat (TICKS_BIT) @(posedge clk_tb);
-      visto[i] = linea;
+      parada = linea;
+      anotar(nombre, arranque === 1'b0 && visto === esperado && parada === 1'b1,
+             $sformatf("esperaba arranque=0 byte=%02h parada=1, y dio arranque=%0b byte=%02h parada=%0b",
+                       esperado, arranque, visto, parada));
     end
-    repeat (TICKS_BIT) @(posedge clk_tb);
-    parada = linea;
-    anotar(nombre, arranque === 1'b0 && visto === esperado && parada === 1'b1,
-           $sformatf("esperaba arranque=0 byte=%02h parada=1, y dio arranque=%0b byte=%02h parada=%0b",
-                     esperado, arranque, visto, parada));
   endtask
 
   task automatic esperar_espejo(input string nombre, input logic [7:0] esperado);

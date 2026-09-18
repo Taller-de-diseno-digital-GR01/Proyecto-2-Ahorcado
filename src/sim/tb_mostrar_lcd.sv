@@ -166,8 +166,10 @@ module tb_mostrar_lcd;
 
   // Como CHECK_SCREEN, pero para la pantalla de JUEGO: screen[0..len-1] contra la palabra,
   // screen[len..11] contra espacios, y el sufijo fijo de intentos en 12..15 (" I:" + digito de
-  // restantes) contra el caracter restantes que se le pase.
-  `define CHECK_SCREEN_JUEGO(nombre, texto, len, restantes) \
+  // restantes) contra el caracter digito_int que se le pase. El argumento no se llama
+  // "restantes" porque Icarus sustituye los argumentos de macro tambien dentro de los strings,
+  // y el mensaje de FALLO contiene esa palabra.
+  `define CHECK_SCREEN_JUEGO(nombre, texto, len, digito_int) \
       begin \
           logic [8*(len)-1:0] __ref; \
           string __got; \
@@ -188,12 +190,12 @@ module tb_mostrar_lcd;
               end else if (__i == 14) begin \
                   if (screen[__i] !== ":") __ok = 1'b0; \
               end else begin \
-                  if (screen[__i] !== (restantes)) __ok = 1'b0; \
+                  if (screen[__i] !== (digito_int)) __ok = 1'b0; \
               end \
           end \
           if (__ok) $display("OK    [%0t ns] %s: pantalla=\"%s\"", $time, nombre, __got); \
           else begin \
-              $display("FALLO [%0t ns] %s: pantalla=\"%s\", se esperaba palabra \"%s\" + intentos restantes '%s'", $time, nombre, __got, texto, (restantes)); \
+              $display("FALLO [%0t ns] %s: pantalla=\"%s\", se esperaba palabra \"%s\" + intentos restantes '%s'", $time, nombre, __got, texto, (digito_int)); \
               errores = errores + 1; \
           end \
       end
@@ -336,6 +338,7 @@ module tb_mostrar_lcd;
     else
         $display("\n=== %0d PRUEBA(S) FALLARON ===", errores);
 
+    if (errores != 0) $fatal(1, "tb_mostrar_lcd termino con fallos");
     $finish;
   end
 
