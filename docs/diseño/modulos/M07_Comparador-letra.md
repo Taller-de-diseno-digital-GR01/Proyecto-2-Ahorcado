@@ -8,21 +8,21 @@ M07_Comparador-letra
 
 ```mermaid
 flowchart LR
-    IN_LETRA(["i_letra, i_letra_nueva (de M10, hace de REG_Letra-in)"]) --> CONV["RESTA<br/>ASCII a código 0-25"]
-    CONV --> CMP_POS["CMP_POSICIONES<br/>un comparador por posición"]
-    IN_W(["i_word, i_word_length (de REG_Palabra-escogida)"]) --> CMP_POS
-    CONV --> REG_USADAS["REG_USADAS<br/>letras ya recibidas"]
-    IN_STATE(["i_state (de M13_FSM)"]) --> REG_USADAS
-    IN_STATE --> REG_MASC["REG_MASCARA<br/>posiciones reveladas"]
-    CMP_POS --> EVAL["EVALUACION<br/>acierto / fallo / repetida"]
-    REG_USADAS --> EVAL
-    CMP_POS --> REG_MASC
-    EVAL --> REG_ST["REG_LETRA_STATE<br/>registro"]
-    REG_ST --> OUT_ST(["o_letra_state, o_letra_lista (a M02 y M11)"])
-    EVAL --> OUT_TRY(["o_try (a M12)"])
-    REG_MASC --> OUT_MASC(["o_mascara (a M04 y M11)"])
-    REG_MASC --> CMP_FIN{"CMP<br/>todas reveladas"}
-    CMP_FIN --> OUT_COMP(["o_palabra_completa (a M13_FSM)"])
+    IN_LETRA(["i_letra, i_letra_nueva (de M10, hace de REG_Letra-in)"]) -->|"i_letra, i_letra_nueva"| CONV["RESTA<br/>ASCII a código 0-25"]
+    CONV -->|codigo| CMP_POS["CMP_POSICIONES<br/>un comparador por posición"]
+    IN_W(["i_word, i_word_length (de REG_Palabra-escogida)"]) -->|"i_word, i_word_length"| CMP_POS
+    CONV -->|codigo| REG_USADAS["REG_USADAS<br/>letras ya recibidas"]
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| REG_USADAS
+    IN_STATE -->|i_state| REG_MASC["REG_MASCARA<br/>posiciones reveladas"]
+    CMP_POS -->|hay_coincidencia| EVAL["EVALUACION<br/>acierto / fallo / repetida"]
+    REG_USADAS -->|ya_usada| EVAL
+    CMP_POS -->|"coincide, relleno"| REG_MASC
+    EVAL -->|"o_letra_state, o_letra_lista"| REG_ST["REG_LETRA_STATE<br/>registro"]
+    REG_ST -->|"o_letra_state, o_letra_lista"| OUT_ST(["o_letra_state, o_letra_lista (a M02 y M11)"])
+    EVAL -->|o_try| OUT_TRY(["o_try (a M12)"])
+    REG_MASC -->|o_mascara| OUT_MASC(["o_mascara (a M04 y M11)"])
+    REG_MASC -->|mascara| CMP_FIN{"CMP<br/>todas reveladas"}
+    CMP_FIN -->|o_palabra_completa| OUT_COMP(["o_palabra_completa (a M13_FSM)"])
 ```
 
 ## c) Objetivo del módulo

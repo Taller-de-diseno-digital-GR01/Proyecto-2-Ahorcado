@@ -32,33 +32,33 @@ ya no puede distinguir la causa y muestra un único "PERDISTE". La causa la repo
 
 ```mermaid
 flowchart LR
-    IN_STATE(["i_state (de M13_FSM)"]) --> CMP_CAMBIO{"CMP<br/>actual ≠ foto"}
-    IN_MODO(["i_modo (de M13_FSM)"]) --> CMP_CAMBIO
-    IN_MASC(["i_mascara (de M07)"]) --> CMP_CAMBIO
-    IN_INT(["i_intentos (de M12)"]) --> CMP_CAMBIO
-    IN_RD(["i_rdata: busy, done (de PERIFERICO_LCD)"]) --> FSM_LCD
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| CMP_CAMBIO{"CMP<br/>actual ≠ foto"}
+    IN_MODO(["i_modo (de M13_FSM)"]) -->|i_modo| CMP_CAMBIO
+    IN_MASC(["i_mascara (de M07)"]) -->|i_mascara| CMP_CAMBIO
+    IN_INT(["i_intentos (de M12)"]) -->|i_intentos| CMP_CAMBIO
+    IN_RD(["i_rdata: busy, done (de PERIFERICO_LCD)"]) -->|"busy, done"| FSM_LCD
     CMP_CAMBIO -->|cambio| FSM_LCD["FSM_LCD<br/>IDLE / HOME / SEND / WAIT"]
-    FSM_LCD -->|"captura"| REG_FOTO["REG_FOTO<br/>state, modo, mascara, intentos, last_pos"]
-    IN_STATE --> REG_FOTO
-    IN_MODO --> REG_FOTO
-    IN_MASC --> REG_FOTO
-    IN_INT --> REG_FOTO
-    REG_FOTO --> CMP_CAMBIO
-    FSM_LCD -->|"reinicia / incrementa"| CNT_POS["CONT_POSICION<br/>pos, 4 bits"]
-    CNT_POS --> CMP_FIN{"CMP<br/>pos = last_pos"}
-    REG_FOTO --> CMP_FIN
-    CMP_FIN --> FSM_LCD
-    REG_FOTO --> ROM_TXT["ROM_TEXTO<br/>MODO / GANASTE / PERDISTE"]
-    CNT_POS --> ROM_TXT
-    REG_FOTO --> GEN_JUEGO["PANTALLA_JUEGO<br/>letra o _ , sufijo I:n"]
-    CNT_POS --> GEN_JUEGO
-    IN_WORD(["i_word / i_word_length (de REG_Palabra-escogida)"]) --> GEN_JUEGO
-    ROM_TXT --> MUX1{{"MUX 2:1<br/>texto fijo / juego"}}
-    GEN_JUEGO --> MUX1
-    REG_FOTO --> MUX1
-    MUX1 --> BUS_OUT["LOGICA_BUS<br/>dirección, write_enable, wdata"]
-    FSM_LCD --> BUS_OUT
-    BUS_OUT --> OUT_LCD(["o_addr / o_write_enable / o_wdata (a PERIFERICO_LCD)"])
+    FSM_LCD -->|"estado (captura IDLE→HOME)"| REG_FOTO["REG_FOTO<br/>state, modo, mascara, intentos, last_pos"]
+    IN_STATE -->|i_state| REG_FOTO
+    IN_MODO -->|i_modo| REG_FOTO
+    IN_MASC -->|i_mascara| REG_FOTO
+    IN_INT -->|i_intentos| REG_FOTO
+    REG_FOTO -->|"act_state, act_modo, act_mascara, act_intentos"| CMP_CAMBIO
+    FSM_LCD -->|"estado (reinicia / incrementa pos)"| CNT_POS["CONT_POSICION<br/>pos, 4 bits"]
+    CNT_POS -->|pos| CMP_FIN{"CMP<br/>pos = last_pos"}
+    REG_FOTO -->|act_last_pos| CMP_FIN
+    CMP_FIN -->|"pos = act_last_pos"| FSM_LCD
+    REG_FOTO -->|"act_state, act_modo"| ROM_TXT["ROM_TEXTO<br/>MODO / GANASTE / PERDISTE"]
+    CNT_POS -->|pos| ROM_TXT
+    REG_FOTO -->|"act_mascara, act_intentos"| GEN_JUEGO["PANTALLA_JUEGO<br/>letra o _ , sufijo I:n"]
+    CNT_POS -->|pos| GEN_JUEGO
+    IN_WORD(["i_word / i_word_length (de REG_Palabra-escogida)"]) -->|"i_word, i_word_length"| GEN_JUEGO
+    ROM_TXT -->|f_byte| MUX1{{"MUX 2:1<br/>texto fijo / juego"}}
+    GEN_JUEGO -->|f_byte_juego| MUX1
+    REG_FOTO -->|act_state| MUX1
+    MUX1 -->|"o_wdata[7:0]"| BUS_OUT["LOGICA_BUS<br/>dirección, write_enable, wdata"]
+    FSM_LCD -->|"estado, byte_step"| BUS_OUT
+    BUS_OUT -->|"o_addr, o_write_enable, o_wdata"| OUT_LCD(["o_addr / o_write_enable / o_wdata (a PERIFERICO_LCD)"])
 ```
 
 ## c) Objetivo del módulo

@@ -8,18 +8,18 @@ M10_Receptor-UART
 
 ```mermaid
 flowchart LR
-    IN_RD(["i_rdata (de ARBITRO_UART)"]) --> FSM_BUS["FSM_BUS<br/>ESPERA / LEE / LIMPIA"]
-    IN_RD --> CMP_RNG{"CMP A-Z<br/>comparador de rango"}
-    IN_STATE(["i_state (de M13_FSM)"]) --> CMP_JG{"CMP = JUEGO<br/>hay partida activa"}
-    FSM_BUS --> AND1["AND<br/>letra válida y en partida"]
-    CMP_RNG --> AND1
-    CMP_JG --> AND1
-    AND1 --> REG_VALID["REG_VALID<br/>registro"]
-    IN_RD --> REG_LETRA["REG_LETRA<br/>registro"]
-    FSM_BUS --> REG_LETRA
-    REG_LETRA --> OUT_LETRA(["o_letra (a M07)"])
-    REG_VALID --> OUT_VW(["o_valid_w (a M07)"])
-    FSM_BUS --> OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
+    IN_RD(["i_rdata (de ARBITRO_UART)"]) -->|new_rx| FSM_BUS["FSM_BUS<br/>ESPERA / LEE / LIMPIA"]
+    IN_RD -->|"i_rdata[7:0]"| CMP_RNG{"CMP A-Z<br/>comparador de rango"}
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| CMP_JG{"CMP = JUEGO<br/>hay partida activa"}
+    FSM_BUS -->|"estado = LEE"| AND1["AND<br/>letra válida y en partida"]
+    CMP_RNG -->|en_rango| AND1
+    CMP_JG -->|"i_state = JUEGO"| AND1
+    AND1 -->|o_valid_w| REG_VALID["REG_VALID<br/>registro"]
+    IN_RD -->|"i_rdata[7:0]"| REG_LETRA["REG_LETRA<br/>registro"]
+    FSM_BUS -->|"estado = LEE"| REG_LETRA
+    REG_LETRA -->|o_letra| OUT_LETRA(["o_letra (a M07)"])
+    REG_VALID -->|o_valid_w| OUT_VW(["o_valid_w (a M07)"])
+    FSM_BUS -->|"o_addr, o_write_enable, o_wdata"| OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
 ```
 
 ## c) Objetivo del módulo

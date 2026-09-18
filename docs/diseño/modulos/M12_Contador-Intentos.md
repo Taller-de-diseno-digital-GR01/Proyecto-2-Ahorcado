@@ -8,12 +8,12 @@ M12_Contador-Intentos
 
 ```mermaid
 flowchart LR
-    IN_TRY(["i_try (de M07)"]) --> CNT1["CONT_INTENTOS<br/>contador saturado en 6"]
-    IN_STATE(["i_state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>limpia al entrar a CARGA"]
-    DEC_ST --> CNT1
-    CNT1 --> CMP1{"CMP >= 6<br/>intentos agotados"}
-    CMP1 --> OUT_FSM(["o_intentos_agotados (a M13_FSM)"])
-    CNT1 --> OUT_M11(["o_intentos (a M04 y M11)"])
+    IN_TRY(["i_try (de M07)"]) -->|i_try| CNT1["CONT_INTENTOS<br/>contador saturado en 6"]
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| DEC_ST["DECOD_ESTADO<br/>limpia al entrar a CARGA"]
+    DEC_ST -->|"i_state = CARGA (limpia)"| CNT1
+    CNT1 -->|cuenta| CMP1{"CMP >= 6<br/>intentos agotados"}
+    CMP1 -->|o_intentos_agotados| OUT_FSM(["o_intentos_agotados (a M13_FSM)"])
+    CNT1 -->|o_intentos| OUT_M11(["o_intentos (a M04 y M11)"])
 ```
 
 ## c) Objetivo del módulo

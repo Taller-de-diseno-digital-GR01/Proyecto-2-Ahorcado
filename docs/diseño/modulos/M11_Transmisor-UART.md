@@ -8,23 +8,23 @@ M11_Transmisor-UART
 
 ```mermaid
 flowchart LR
-    IN_STATE(["i_state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>cuál trama toca enviar"]
-    IN_MODO(["i_modo (de M13_FSM)"]) --> REG_FRAME["REG_TRAMA<br/>registro"]
-    DEC_ST --> PEND["BANDERAS_PENDIENTE<br/>ini / letra / fin"]
-    IN_LST(["i_letra_state, i_letra_lista (de M07)"]) --> PEND
-    IN_LST --> REG_FRAME
-    IN_MASK(["i_mascara (de M07)"]) --> REG_FRAME
-    IN_TRY(["i_intentos (de M12)"]) --> REG_FRAME
-    IN_LEN(["i_word_length (de REG_Palabra-escogida)"]) --> REG_FRAME
-    PEND --> FSM["FSM_BUS<br/>IDLE / LOAD_DATA / LOAD_CTRL / WAIT"]
-    IN_LIBRE(["i_bus_libre (de ARBITRO_UART)"]) --> FSM
-    IN_RD(["i_rdata (de ARBITRO_UART)"]) --> FSM
-    PEND --> REG_FRAME
-    REG_FRAME --> MUX1{{"MUX<br/>selección de byte"}}
-    CNT_BYTE["CONT_BYTE<br/>contador"] --> MUX1
-    FSM --> CNT_BYTE
-    MUX1 --> OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
-    FSM --> OUT_BUS
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| DEC_ST["DECOD_ESTADO<br/>cuál trama toca enviar"]
+    IN_MODO(["i_modo (de M13_FSM)"]) -->|i_modo| REG_FRAME["REG_TRAMA<br/>registro"]
+    DEC_ST -->|"pulso_ini, pulso_fin"| PEND["BANDERAS_PENDIENTE<br/>ini / letra / fin"]
+    IN_LST(["i_letra_state, i_letra_lista (de M07)"]) -->|i_letra_lista| PEND
+    IN_LST -->|i_letra_state| REG_FRAME
+    IN_MASK(["i_mascara (de M07)"]) -->|i_mascara| REG_FRAME
+    IN_TRY(["i_intentos (de M12)"]) -->|i_intentos| REG_FRAME
+    IN_LEN(["i_word_length (de REG_Palabra-escogida)"]) -->|i_word_length| REG_FRAME
+    PEND -->|hay_pendiente| FSM["FSM_BUS<br/>IDLE / LOAD_DATA / LOAD_CTRL / WAIT"]
+    IN_LIBRE(["i_bus_libre (de ARBITRO_UART)"]) -->|i_bus_libre| FSM
+    IN_RD(["i_rdata (de ARBITRO_UART)"]) -->|send_busy| FSM
+    PEND -->|consumir| REG_FRAME
+    REG_FRAME -->|reg_trama| MUX1{{"MUX<br/>selección de byte"}}
+    CNT_BYTE["CONT_BYTE<br/>contador"] -->|cnt_byte| MUX1
+    FSM -->|estado_wait_libre| CNT_BYTE
+    MUX1 -->|o_wdata| OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
+    FSM -->|"o_addr, o_write_enable"| OUT_BUS
 ```
 
 ## c) Objetivo del módulo
