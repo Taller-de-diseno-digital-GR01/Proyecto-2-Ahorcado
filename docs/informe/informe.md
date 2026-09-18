@@ -1091,12 +1091,109 @@ y la lógica de destino queda lejos en el dispositivo.
 
 ### 10.7 Simulación post-implementación temporizada
 
-> **Pendiente.** El enunciado pide una simulación post-implementación temporizada que cubra al
-> menos la recepción y validación de una letra. El flujo openXC7 no genera un netlist con retardos
-> SDF listo para simular, por lo que esta simulación **no se realizó** con el toolchain abierto.
-> La alternativa es correr el mismo `tb_top.sv` sobre el netlist temporizado que genera Vivado
-> (`write_verilog -mode timesim` + `write_sdf`) e insertar aquí las formas de onda de `rx_i`,
-> `letra_nueva`, `mascara` y `o_try`.
+El enunciado pide una simulación post-implementación temporizada del sistema que cubra al menos la
+recepción y validación de una letra. openXC7 no genera un netlist con retardos SDF listo para
+simular, así que para esta simulación se usó Vivado 2026.1: implementación, netlist temporizado
+(`write_verilog -mode timesim` + `write_sdf`) y simulación con xsim.
+
+**Testbench.** `tb_top` no sirve sobre el netlist: usa `force dut.bank_word` y lee señales internas
+(`dut.state`, `dut.mascara`, `dut.word`), que después de síntesis desaparecen o cambian de nombre y de
+ancho. `bank_word` ni siquiera existe, porque la ROM quedó dentro de LUTs. Por eso se escribió
+`src/sim/tb_top_timesim.sv`, que solo usa los puertos del `top`. Hace de PC: manda los bytes como
+tramas seriales reales por `rx_i` y decodifica en `tx_o` las tramas con que responde la FPGA
+(sección 7.2). Como no puede forzar la palabra, verifica propiedades que se cumplen con cualquier
+palabra:
+
+1. Al entrar a `JUEGO` llega la trama INICIO, en modo FÁCIL y con longitud entre 4 y 12.
+2. Un `'1'` y una `'a'` minúscula se descartan: la FPGA no responde.
+3. La primera `A` produce una trama LETRA de acierto o fallo, con `fallos` coherente con el
+   resultado, la máscara rellena con 1 por encima de la longitud y posiciones reveladas solo si
+   hubo acierto.
+4. La segunda `A` sale como repetida, sin cambiar los fallos ni la máscara.
+
+**Debounce reducido.** El sistema necesita un `BTN_OK` filtrado para entrar a `JUEGO`, y el debounce
+de 21 bits exige mantenerlo 2²⁰ ciclos (10,5 ms). Sobre el netlist con retardos, xsim avanza unos
+0,15 ms simulados por minuto, así que solo esa espera costaba más de una hora. Por eso el ancho del
+contador se volvió un parámetro del `top` (`N_DEBOUNCE`, 21 por defecto) y esta implementación se hizo
+con `N_DEBOUNCE = 12` (2 048 ciclos, 20 µs). El bitstream de la tarjeta se genera siempre con 21. La
+única diferencia entre ambos netlists es el ancho de los dos contadores del debounce; el camino que
+se verifica (UART → árbitro → receptor → comparador → contador de intentos → transmisor → UART) es
+el mismo.
+
+**Implementación.** `synth_design -generic N_DEBOUNCE=12` + `opt_design` + `place_design` +
+`route_design` para el xc7a35tcpg236-1 con `src/fpga/basys3.xdc`:
+
+| Métrica | Valor |
+|---|---|
+| WNS (setup) | +3,003 ns |
+| WHS (hold) | +0,135 ns |
+| Endpoints con violación | 0 de 1 217 |
+| Resultado | *All user specified timing constraints are met* |
+
+**Resultado.** Simulación de 2,73 ms del sistema completo con los retardos post-ruteo (SDF):
+
+```
+OK    [400000 ns] tras el reset tx_o queda en reposo
+OK    [325725000 ns] al entrar a JUEGO la FPGA manda la trama INICIO de 3 bytes
+OK    [325725000 ns] la cabecera es 'I'
+OK    [325725000 ns] el modo es FACIL (sin tocar btn_sel)
+OK    [325725000 ns] la longitud esta entre 4 y 12
+      palabra de 5 letras
+OK    [932925000 ns] un '1' se descarta: la FPGA no responde
+OK    [1540125000 ns] una 'a' minuscula tambien se descarta
+OK    [2131165000 ns] la 'A' produce una trama LETRA de 5 bytes
+      resultado=00 fallos=1 mascara=111111100000
+OK    [2131165000 ns] la cabecera es 'L'
+OK    [2131165000 ns] la primera 'A' sale como acierto o fallo, nunca repetida
+OK    [2131165000 ns] fallos es 1 si fue fallo y 0 si fue acierto
+OK    [2131165000 ns] la mascara viene rellena con 1 por encima de la longitud
+OK    [2131165000 ns] si fue acierto se revelo al menos una posicion, si fue fallo ninguna
+OK    [2730085000 ns] la 'A' repetida tambien responde con una trama LETRA
+OK    [2730085000 ns] el resultado es repetida
+OK    [2730085000 ns] la repetida no gasta intento
+OK    [2730085000 ns] la repetida no cambia la mascara
+17 pruebas, 0 fallos
+=== TODAS LAS PRUEBAS PASARON ===
+$finish called at time : 2730085 ns
+```
+
+Los tiempos entre corchetes están en ps: xsim imprime `$time` con la resolución de 1 ps del netlist
+aunque el formato diga `ns`. La corrida simuló 2,73 ms y tardó 22,6 minutos.
+
+La palabra elegida por el LFSR tiene 5 letras y no contiene `A`. Por eso la primera `A` sale como
+fallo, con `fallos = 1` y máscara `111111100000`: las 5 posiciones siguen ocultas y los 7 bits altos
+son el relleno.
+
+<!-- FIGURA_TIMESIM -->
+
+**Advertencias de xsim.** Durante la simulación xsim reporta 40 violaciones de setup/hold (20 flip-flops,
+una de cada tipo), todas entre 210,18 y 210,25 ns: justo cuando el testbench suelta `rst`. Afectan a
+contadores que se reinician con `rst` (`nucleo_rx`/`nucleo_tx` del UART, preescalador del
+temporizador, etc.). La causa es que `rst` entra directo del pin, sin sincronizador ni restricción de
+entrada, y con el retardo del IBUF y del ruteo (~10 ns) su flanco cae casi sobre el flanco de reloj.
+No aparece ninguna violación después del reset, y todas las pruebas pasan. En la tarjeta el botón de
+reset es asíncrono al reloj, así que la mejora correspondiente es sincronizar `rst` con dos
+flip-flops antes de distribuirlo (sección 13).
+
+**Cómo reproducirla** (también está en el `README.md`):
+
+```sh
+# 1) implementación con debounce reducido y netlist temporizado (Vivado batch)
+synth_design -top top -part xc7a35tcpg236-1 -generic N_DEBOUNCE=12
+opt_design; place_design; route_design
+write_verilog -mode timesim -sdf_anno true -sdf_file top_timesim.sdf top_timesim.v
+write_sdf top_timesim.sdf
+# 2) simulación
+xvlog top_timesim.v $XILINX_VIVADO/data/verilog/src/glbl.v
+xvlog -sv src/sim/tb_top_timesim.sv
+xelab --maxdelay -L simprims_ver -L secureip -transport_int_delays \
+      -generic_top "N_DEBOUNCE=12" --snapshot tb12 work.tb_top_timesim work.glbl
+xsim tb12 -runall
+```
+
+En Ubuntu y derivadas, el g++ que trae Vivado no encuentra `crt1.o` y `xelab` falla con
+`[XSIM 43-3238] Failed to link the design`. Se arregla exportando
+`LIBRARY_PATH=/usr/lib/x86_64-linux-gnu` antes de abrir Vivado.
 
 ---
 
@@ -1184,11 +1281,16 @@ que se corrigieron (sección 10.2).
   PC sin necesidad de la tarjeta.
 - Cierre de timing con 21 % de holgura, uso de recursos por debajo del 5 % y cero latches.
 - Flujo reproducible sin Vivado: `make all` sintetiza, programa y abre la app.
+- Simulación post-implementación temporizada del sistema completo en Vivado, con la recepción y
+  validación de letras verificada solo por los puertos (sección 10.7).
 
 ### Limitaciones
 
-- **No se hizo la simulación post-implementación temporizada** que pide el enunciado (sección
-  10.7).
+- La simulación post-implementación temporizada se hizo con `N_DEBOUNCE = 12` en lugar de 21 para
+  que durara minutos y no horas. Por eso no corresponde bit a bit al bitstream de la tarjeta, aunque
+  el camino verificado es idéntico (sección 10.7).
+- `rst` entra sin sincronizador. En la simulación temporizada eso produce violaciones de setup/hold
+  al soltar el reset (sección 10.7).
 - El LCD no muestra la causa de la derrota (solo `PERDISTE`), porque la FSM no la distingue. La
   causa sí llega a la PC.
 - La palabra secreta no se revela al perder, ni en la LCD ni en la PC.
@@ -1198,7 +1300,8 @@ que se corrigieron (sección 10.2).
 
 ### Mejoras posibles
 
-1. Corregir los cuatro testbenches y agregar la simulación temporizada con el netlist de Vivado.
+1. Sincronizar `rst` con dos flip-flops antes de distribuirlo, para eliminar las violaciones al
+   soltar el reset que muestra la simulación temporizada.
 2. Registrar `state` a la entrada de `mostrar_lcd` para mejorar la holgura de la ruta crítica.
 3. Mostrar la palabra y la causa al perder (enviar la palabra en la trama FIN).
 4. LFSR de 16 bits o *whitening* para eliminar el sesgo.
@@ -1229,9 +1332,10 @@ que se corrigieron (sección 10.2).
    bien definida.** El árbitro (P4) y el `send` sostenido (P3) salieron de entender exactamente qué
    significa WC, W1P y RW en cada bit.
 
-Se cumplieron los objetivos 1 a 5. El objetivo 6 se cumplió en cuanto a timing y latches, y
-parcialmente en verificación, por los cuatro testbenches pendientes y la simulación
-post-implementación.
+Se cumplieron los seis objetivos. Los 19 testbenches autoverificables pasan (469 verificaciones), el
+diseño cierra timing a 100 MHz sin latches, y la simulación post-implementación temporizada confirma
+la recepción y validación de letras sobre el netlist ruteado (17 de 17 pruebas). Su única salvedad
+es el debounce reducido (sección 10.7).
 
 ---
 

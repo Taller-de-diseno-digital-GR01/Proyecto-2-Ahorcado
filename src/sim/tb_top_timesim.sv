@@ -143,6 +143,13 @@ module tb_top_timesim #(
     logic [11:0] mascara1;
     bit          llegaron;
 
+    // Nivel 1: solo las senales del testbench (puertos del top y la cola de la PC). En el netlist
+    // las internas no tienen nombres utiles y harian el VCD enorme
+    initial begin
+        $dumpfile("tb_top_timesim.vcd");
+        $dumpvars(1, tb_top_timesim);
+    end
+
     initial begin
         clk     = 1'b0;
         rst     = 1'b1;
