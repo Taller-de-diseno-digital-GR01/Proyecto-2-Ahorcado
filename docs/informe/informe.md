@@ -43,7 +43,7 @@ Python funciona como terminal remota por UART a 115 200 baudios. El estado se mu
 16x2 (PmodCLP, controlador HD44780/KS0066U), en cuatro displays de 7 segmentos, en dos LEDs de
 estado y en un buzzer.
 
-La solución se organizó en 14 módulos numerados (M01–M13), más el periférico LCD, el periférico
+La solución se organizó en 14 módulos numerados (M01–M14), más el periférico LCD, el periférico
 UART, un árbitro de bus UART y la ROM de palabras. El flujo de síntesis, colocación, ruteo y
 generación del bitstream se hizo con el toolchain abierto openXC7 (yosys + nextpnr-xilinx +
 prjxray), sin Vivado. El diseño completo cierra timing a 100 MHz con **127,7 MHz de frecuencia
