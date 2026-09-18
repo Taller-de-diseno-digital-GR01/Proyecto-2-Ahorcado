@@ -3,7 +3,12 @@
 Ficha del bloque `APP_PC` del nivel 2. No lleva el formato de nivel 4 de los módulos porque no es
 hardware, no tiene diagrama por compuertas ni restricciones de pin.
 
-El código vive en `sw/` y la única dependencia es `pyserial`.
+El código vive en `sw/` y la única dependencia es `pyserial`, fijada en `sw/requirements.txt` como
+`pyserial>=3.5`.
+
+Este archivo es la única descripción de la app. Los `.py` no repiten arriba de todo qué hace cada
+uno, para no terminar con dos versiones de lo mismo divergiendo, que es el problema que el
+proyecto ya tuvo entre `diseño.md` y las fichas de módulo.
 
 ## Por qué no hay lógica de juego acá
 
@@ -141,3 +146,20 @@ terminal interactiva, con la entrada canalizada avisa y solo procesa lo que le l
 Para probar el ciclo completo sin la tarjeta sirve un pseudoterminal. Se abre con `pty.openpty()`,
 se le pasa el `/dev/pts/N` a la app con `-p`, y por el otro extremo se le escriben los mensajes
 crudos mientras se le mandan teclas por la entrada estándar.
+
+## Lo que falta probar
+
+Todo lo de arriba corre sin tarjeta. **La app todavía no se ha probado contra la Basys 3 con el
+diseño cargado**, que es la última etapa pendiente del subsistema UART y la única forma de cerrar
+el camino completo. Lo que un pseudoterminal no puede reproducir:
+
+- El baudaje real. Los testbenches del UART reescalan los ticks para simular rápido, así que el
+  redondeo de `TICKS_X16` a 54 en vez de 54.25 nunca se ejerció contra un reloj de 100 MHz.
+- La detección del puerto. `enlace.py` se queda con el último de los dos canales del FT2232, y eso
+  solo se confirma con la tarjeta enchufada.
+- El ritmo de escritura de una persona real contra el `send` del periférico, que es donde viven las
+  banderas pendientes de `M11_Transmisor-UART`.
+
+Si al probar contra la tarjeta algo sale corrido en pantalla, conviene sospechar primero del orden
+de flancos del RTL y no parchear la app. Ya pasó una vez con los intentos, que salían atrasados en
+uno porque `o_try` era registrado, y se arregló en `comparador_letra.sv` y no acá.
