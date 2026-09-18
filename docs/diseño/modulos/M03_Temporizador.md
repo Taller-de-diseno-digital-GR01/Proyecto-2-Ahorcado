@@ -8,36 +8,36 @@ M03_Temporizador
 
 ```mermaid
 flowchart LR
-    IN_STATE(["i_state (de FSM)"]) --> DECJ["FLANCO_JUEGO<br/>start, flanco de entrada a JUEGO"]
-    IN_STATE --> DECFN["DEC_FIN<br/>nivel, en GANO o PERDIO"]
-    IN_STATE --> DECF["FLANCO_FIN<br/>pulso_fin, flanco de entrada a GANO/PERDIO"]
-    DECJ -->|"carga"| REG_T["REG_TIEMPO<br/>2 décadas BCD"]
-    DECJ -->|"enciende"| REG_RUN["REG_RUNNING<br/>registro"]
-    DECFN -->|"apaga running"| REG_RUN
-    DECF -->|"reinicia a 00"| REG_T
-    IN_MODO(["modo (de FSM)"]) --> MUX1{{"MUX 2:1<br/>tiempo inicial 60 / 45"}}
-    MUX1 --> REG_T
-    CNT_PRE["CONT_PRESCALER<br/>27 bits descendente"] --> CMP0{"CMP = 0<br/>tick_1hz"}
-    CMP0 --> AND_EN["AND<br/>cten = running · tick_1hz"]
-    REG_RUN --> AND_EN
-    AND_EN -->|en| SUB1["DECREMENTADOR BCD<br/>con préstamo entre décadas"]
-    REG_T --> SUB1
-    SUB1 --> REG_T
-    REG_T --> CMP2{"CMP = 00<br/>zero"}
-    CMP2 -->|"apaga running"| REG_RUN
-    CMP2 --> REG_TA["REG_TIEMPO_AGOTADO<br/>set: running · zero"]
-    REG_RUN --> REG_TA
-    DECJ -->|"limpia"| REG_TA
-    DECF -->|"limpia"| REG_TA
-    REG_TA --> OUT_FIN(["tiempo_agotado (a FSM)"])
-    REG_T --> OUT_TIME(["tiempo (a M01)"])
-    DECF -->|"reinicia"| CNT_ESPERA["CONT_ESPERA<br/>2 bits, satura en 3"]
-    DECFN --> CNT_ESPERA
-    CMP0 --> CNT_ESPERA
-    CNT_ESPERA --> REG_FE["REG_FIN_ESPERA<br/>set: tercer tick en GANO/PERDIO"]
-    DECJ -->|"limpia"| REG_FE
-    DECF -->|"limpia"| REG_FE
-    REG_FE --> OUT_ESPERA(["o_fin_espera (a FSM)"])
+    IN_STATE(["i_state (de FSM)"]) -->|i_state| DECJ["FLANCO_JUEGO<br/>start, flanco de entrada a JUEGO"]
+    IN_STATE -->|i_state| DECFN["DEC_FIN<br/>nivel, en GANO o PERDIO"]
+    IN_STATE -->|i_state| DECF["FLANCO_FIN<br/>pulso_fin, flanco de entrada a GANO/PERDIO"]
+    DECJ -->|"start (carga)"| REG_T["REG_TIEMPO<br/>2 décadas BCD"]
+    DECJ -->|"start (enciende)"| REG_RUN["REG_RUNNING<br/>registro"]
+    DECFN -->|"dec_fin (apaga running)"| REG_RUN
+    DECF -->|"pulso_fin (reinicia a 00)"| REG_T
+    IN_MODO(["modo (de FSM)"]) -->|modo| MUX1{{"MUX 2:1<br/>tiempo inicial 60 / 45"}}
+    MUX1 -->|"tiempo_dec_inicial, tiempo_uni_inicial"| REG_T
+    CNT_PRE["CONT_PRESCALER<br/>27 bits descendente"] -->|prescaler_cnt| CMP0{"CMP = 0<br/>tick_1hz"}
+    CMP0 -->|tick_1hz| AND_EN["AND<br/>cten = running · tick_1hz"]
+    REG_RUN -->|running| AND_EN
+    AND_EN -->|"cten (en)"| SUB1["DECREMENTADOR BCD<br/>con préstamo entre décadas"]
+    REG_T -->|"tiempo_dec, tiempo_uni"| SUB1
+    SUB1 -->|"tiempo_dec, tiempo_uni"| REG_T
+    REG_T -->|"tiempo_dec, tiempo_uni"| CMP2{"CMP = 00<br/>zero"}
+    CMP2 -->|"zero (apaga running)"| REG_RUN
+    CMP2 -->|zero| REG_TA["REG_TIEMPO_AGOTADO<br/>set: running · zero"]
+    REG_RUN -->|running| REG_TA
+    DECJ -->|"start (limpia)"| REG_TA
+    DECF -->|"pulso_fin (limpia)"| REG_TA
+    REG_TA -->|tiempo_agotado| OUT_FIN(["tiempo_agotado (a FSM)"])
+    REG_T -->|tiempo| OUT_TIME(["tiempo (a M01)"])
+    DECF -->|"pulso_fin (reinicia)"| CNT_ESPERA["CONT_ESPERA<br/>2 bits, satura en 3"]
+    DECFN -->|dec_fin| CNT_ESPERA
+    CMP0 -->|tick_1hz| CNT_ESPERA
+    CNT_ESPERA -->|cont_espera| REG_FE["REG_FIN_ESPERA<br/>set: tercer tick en GANO/PERDIO"]
+    DECJ -->|"start (limpia)"| REG_FE
+    DECF -->|"pulso_fin (limpia)"| REG_FE
+    REG_FE -->|o_fin_espera| OUT_ESPERA(["o_fin_espera (a FSM)"])
 ```
 
 ## c) Objetivo del módulo

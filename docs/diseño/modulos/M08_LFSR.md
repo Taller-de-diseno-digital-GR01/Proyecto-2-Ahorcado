@@ -8,33 +8,33 @@ M08_LFSR
 
 ```mermaid
 flowchart LR
-    XOR_FB["XOR<br/>realimentación"] --> REG_LFSR["REG_LFSR<br/>registro de desplazamiento (6b)"]
-    REG_LFSR --> XOR_FB
+    XOR_FB["XOR<br/>realimentación"] -->|feedback| REG_LFSR["REG_LFSR<br/>registro de desplazamiento (6b)"]
+    REG_LFSR -->|"reg_lfsr[5], reg_lfsr[4]"| XOR_FB
 
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>detecta entrada a CARGA"]
-    DEC_ST --> DPREV["D-FF<br/>dec_carga_prev"]
-    DEC_ST --> ANDP["AND<br/>(prev invertido)"]
-    DPREV --> ANDP
-    ANDP --> PULSO["pulso_carga"]
+    IN_STATE(["state (de M13_FSM)"]) -->|i_state| DEC_ST["DECOD_ESTADO<br/>detecta entrada a CARGA"]
+    DEC_ST -->|dec_carga| DPREV["D-FF<br/>dec_carga_prev"]
+    DEC_ST -->|dec_carga| ANDP["AND<br/>(prev invertido)"]
+    DPREV -->|dec_carga_prev| ANDP
+    ANDP -->|pulso_carga| PULSO["pulso_carga"]
 
     REG_LFSR -->|"[5:0]"| CMPF{"CMP ≤ 50<br/>índice fácil válido"}
     REG_LFSR -->|"[4:0]"| ROMD["ROM_IDX_DIFICIL<br/>32 entradas"]
-    ROMD --> CMPD{"CMP < 32<br/>índice difícil válido"}
+    ROMD -->|idx_dificil| CMPD{"CMP < 32<br/>índice difícil válido"}
 
-    IN_MODO(["modo (de M13_FSM)"]) --> MUXV{{"MUX 2:1<br/>válido / dirección"}}
-    CMPF --> MUXV
-    CMPD --> MUXV
+    IN_MODO(["modo (de M13_FSM)"]) -->|i_modo| MUXV{{"MUX 2:1<br/>válido / dirección"}}
+    CMPF -->|valido_facil| MUXV
+    CMPD -->|valido_dificil| MUXV
     REG_LFSR -->|"dir_facil"| MUXV
     ROMD -->|"dir_dificil"| MUXV
 
     MUXV -->|"bank_addr"| OUT_ADDR(["bank_addr (a REG_WBank)"])
-    PULSO --> REGCARG["REG_CARGADO<br/>flip-flop"]
+    PULSO -->|pulso_carga| REGCARG["REG_CARGADO<br/>flip-flop"]
     MUXV -->|"valido"| REGCARG
 
-    IN_BANK(["bank_word (de REG_WBank)"]) --> REG_SEL["REG_WORD_SEL<br/>registro (palabra + longitud)"]
-    REGCARG --> REG_SEL
-    REG_SEL --> OUT_WORD(["word (a REG_Palabra-escogida)"])
-    REGCARG --> OUT_VALID(["valid_word (a M13_FSM)"])
+    IN_BANK(["bank_word (de REG_WBank)"]) -->|i_bank_word| REG_SEL["REG_WORD_SEL<br/>registro (palabra + longitud)"]
+    REGCARG -->|reg_cargado| REG_SEL
+    REG_SEL -->|o_word| OUT_WORD(["word (a REG_Palabra-escogida)"])
+    REGCARG -->|o_valid_word| OUT_VALID(["valid_word (a M13_FSM)"])
 ```
 
 `clk` y `rst` entran a todo registro/contador aunque no se dibujen, por el mismo criterio del

@@ -8,21 +8,21 @@ M07_Comparador-letra
 
 ```mermaid
 flowchart LR
-    IN_LETRA(["i_letra, i_letra_nueva (de M10, hace de REG_Letra-in)"]) --> CONV["RESTA<br/>ASCII a código 0-25"]
-    CONV --> CMP_POS["CMP_POSICIONES<br/>un comparador por posición"]
-    IN_W(["i_word, i_word_length (de REG_Palabra-escogida)"]) --> CMP_POS
-    CONV --> REG_USADAS["REG_USADAS<br/>letras ya recibidas"]
-    IN_STATE(["i_state (de M13_FSM)"]) --> REG_USADAS
-    IN_STATE --> REG_MASC["REG_MASCARA<br/>posiciones reveladas"]
-    CMP_POS --> EVAL["EVALUACION<br/>acierto / fallo / repetida"]
-    REG_USADAS --> EVAL
-    CMP_POS --> REG_MASC
-    EVAL --> REG_ST["REG_LETRA_STATE<br/>registro"]
-    REG_ST --> OUT_ST(["o_letra_state, o_letra_lista (a M02 y M11)"])
-    EVAL --> OUT_TRY(["o_try (a M12)"])
-    REG_MASC --> OUT_MASC(["o_mascara (a M04 y M11)"])
-    REG_MASC --> CMP_FIN{"CMP<br/>todas reveladas"}
-    CMP_FIN --> OUT_COMP(["o_palabra_completa (a M13_FSM)"])
+    IN_LETRA(["i_letra, i_letra_nueva (de M10, hace de REG_Letra-in)"]) -->|"i_letra, i_letra_nueva"| CONV["RESTA<br/>ASCII a código 0-25"]
+    CONV -->|codigo| CMP_POS["CMP_POSICIONES<br/>un comparador por posición"]
+    IN_W(["i_word, i_word_length (de REG_Palabra-escogida)"]) -->|"i_word, i_word_length"| CMP_POS
+    CONV -->|codigo| REG_USADAS["REG_USADAS<br/>letras ya recibidas"]
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| REG_USADAS
+    IN_STATE -->|i_state| REG_MASC["REG_MASCARA<br/>posiciones reveladas"]
+    CMP_POS -->|hay_coincidencia| EVAL["EVALUACION<br/>acierto / fallo / repetida"]
+    REG_USADAS -->|ya_usada| EVAL
+    CMP_POS -->|"coincide, relleno"| REG_MASC
+    EVAL -->|"o_letra_state, o_letra_lista"| REG_ST["REG_LETRA_STATE<br/>registro"]
+    REG_ST -->|"o_letra_state, o_letra_lista"| OUT_ST(["o_letra_state, o_letra_lista (a M02 y M11)"])
+    EVAL -->|o_try| OUT_TRY(["o_try (a M12)"])
+    REG_MASC -->|o_mascara| OUT_MASC(["o_mascara (a M04 y M11)"])
+    REG_MASC -->|mascara| CMP_FIN{"CMP<br/>todas reveladas"}
+    CMP_FIN -->|o_palabra_completa| OUT_COMP(["o_palabra_completa (a M13_FSM)"])
 ```
 
 ## c) Objetivo del módulo
@@ -289,3 +289,33 @@ El punto j) del método de diseño modular pide un diagrama de conexiones eléct
 aplica a un montaje con circuitos integrados discretos. En un diseño que se sintetiza completo
 dentro de la Artix-7 la traducción razonable es esta lista de puertos del instanciado, y queda
 pendiente confirmárselo al profesor.
+
+---
+
+## Verificación
+
+`src/sim/tb_comparador_letra.sv` es autoverificable, corre con `make sim TB=comparador_letra` y
+reporta 34 pruebas sin fallos. La palabra se fuerza desde el testbench en vez de instanciar
+`M08_LFSR`, así cada caso escoge la que le sirve. Comprueba:
+
+- Después del reset la máscara queda en ceros, las salidas de letra quietas y `o_palabra_completa`
+  en 0.
+- Al pasar por CARGA la máscara arranca con el relleno en unos y las posiciones válidas en cero.
+- La A de CASA acierta y revela sus dos posiciones de un solo golpe, que es el requisito de revelar
+  todas las ocurrencias a la vez.
+- La Z no está, se evalúa como fallo y pulsa `o_try` sin mover la máscara.
+- `o_letra_lista` y `o_try` duran un solo ciclo cada uno.
+- Una letra repetida sí levanta `o_letra_lista` pero no gasta intento ni toca la máscara, y una que
+  ya había fallado antes también cuenta como repetida.
+- La palabra se cierra letra por letra y `o_palabra_completa` sube en el mismo ciclo en que la
+  última posición se revela.
+- Los tres largos de borde, CASA con relleno desde la posición 4, PERRO donde la A no aparece y no
+  se confunde con el relleno, y una palabra de 12 letras que no deja relleno.
+- Que la partida siguiente vuelva a dejar solo el relleno y limpie `REG_USADAS`, con la A otra vez
+  como acierto.
+
+Las dos últimas pruebas son las carreras de prioridad del registro, `rst` contra una letra que
+llega en el mismo ciclo, y CARGA contra una letra en el mismo ciclo. Las dos tienen que ganarle a
+la letra, si no la máscara y la evaluación quedan diciendo cosas distintas.
+
+`make synth SYNTH_TOP=comparador_letra` pasa sin `Latch inferred` en el log.

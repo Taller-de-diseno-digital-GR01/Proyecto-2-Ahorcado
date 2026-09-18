@@ -9,16 +9,17 @@ En este documento se detallan los diagramas de diseño de tercer nivel. Además,
 ```mermaid
 flowchart TD
 
-clk --> FPGA
-BTN_RST[BTN_RST] --> FPGA
+clk -->|clk| FPGA
+BTN_RST[BTN_RST] -->|rst| FPGA
 BTN_SEL[BTN_SEL] -->|sel|M09
 BTN_OK[BTN_OK] -->|ok|M09
 
 PC -->|"RX serial"| PERIFERICO_UART
+PERIFERICO_UART -->|tx_o| PC
 
 
 
-LETRA -.-> PC
+LETRA -.->|"letra A-Z"| PC
 subgraph "PC"
     App["App"]
 
@@ -139,16 +140,16 @@ por el mismo criterio usado en los niveles 1 y 2.
 
 ```mermaid
 flowchart LR
-    IN_TIME(["time (de M03)"]) --> REG_T["REG_TIEMPO<br/>registro"]
-    IN_WIN(["num_ganadas (de M06)"]) --> REG_G["REG_GANADAS<br/>registro"]
-    CNT_REF["CONT_REFRESCO<br/>contador"] --> MUX1{{"MUX 2:1<br/>selecciona dígito"}}
-    REG_T --> MUX1
-    REG_G --> MUX1
-    MUX1 --> DEC["DECOD_BCD_7SEG<br/>decodificador"]
-    DEC --> OUT_SEG(["segmentos + ánodos"])
-    CNT_REF --> OUT_SEG
-    OUT_SEG --> OUT_T(["deco_time (a 7SEG1)"])
-    OUT_SEG --> OUT_W(["deco_num_win (a 7SEG2)"])
+    IN_TIME(["time (de M03)"]) -->|time_value| REG_T["REG_TIEMPO<br/>registro"]
+    IN_WIN(["num_ganadas (de M06)"]) -->|num_ganadas| REG_G["REG_GANADAS<br/>registro"]
+    CNT_REF["CONT_REFRESCO<br/>contador"] -->|selector| MUX1{{"MUX 2:1<br/>selecciona dígito"}}
+    REG_T -->|time_value_reg| MUX1
+    REG_G -->|ganadas_reg| MUX1
+    MUX1 -->|digito_bcd| DEC["DECOD_BCD_7SEG<br/>decodificador"]
+    DEC -->|seg| OUT_SEG(["segmentos + ánodos"])
+    CNT_REF -->|selector| OUT_SEG
+    OUT_SEG -->|"seg, an"| OUT_T(["deco_time (a 7SEG1)"])
+    OUT_SEG -->|"seg, an"| OUT_W(["deco_num_win (a 7SEG2)"])
 ```
 
 ### c) Objetivo del módulo
@@ -174,19 +175,19 @@ M03_Temporizador y el número de partidas ganadas desde M06_Ganadas, y los muest
 
 ```mermaid
 flowchart LR
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>detecta fin de partida"]
-    DEC_ST --> REG_EN["REG_ENABLE<br/>registro"]
-    IN_LST(["letra_state (de M07)"]) --> REG_EN
-    IN_LST --> MUX1{{"MUX 3:1<br/>tono acierto/fallo/fin"}}
-    DEC_ST --> MUX1
-    MUX1 --> REG_N["REG_N<br/>registro (valor N)"]
-    REG_EN --> CNT_DIV["CONT_DIVISOR<br/>contador (prescaler)"]
-    REG_N --> CMP1{"CMP = N<br/>comparador"}
-    CNT_DIV --> CMP1
-    CMP1 -->|toggle| REG_SQ["REG_ONDA<br/>flip-flop T"]
-    REG_SQ --> OUT_SND(["sound (a BUZZER)"])
-    CNT_DUR["CONT_DURACION<br/>contador"] -->|fin| REG_EN
-    REG_EN --> CNT_DUR
+    IN_STATE(["state (de M13_FSM)"]) -->|i_state| DEC_ST["DECOD_ESTADO<br/>detecta fin de partida"]
+    DEC_ST -->|pulso_fin| REG_EN["REG_ENABLE<br/>registro"]
+    IN_LST(["letra_state (de M07)"]) -->|i_letra_state| REG_EN
+    IN_LST -->|i_letra_state| MUX1{{"MUX 3:1<br/>tono acierto/fallo/fin"}}
+    DEC_ST -->|pulso_fin| MUX1
+    MUX1 -->|next_n| REG_N["REG_N<br/>registro (valor N)"]
+    REG_EN -->|reg_enable| CNT_DIV["CONT_DIVISOR<br/>contador (prescaler)"]
+    REG_N -->|reg_n| CMP1{"CMP = N<br/>comparador"}
+    CNT_DIV -->|cont_divisor| CMP1
+    CMP1 -->|"cont_divisor = reg_n (toggle)"| REG_SQ["REG_ONDA<br/>flip-flop T"]
+    REG_SQ -->|o_sound| OUT_SND(["sound (a BUZZER)"])
+    CNT_DUR["CONT_DURACION<br/>contador"] -->|"cont_duracion = DUR_CYCLES (fin)"| REG_EN
+    REG_EN -->|reg_enable| CNT_DUR
 ```
 
 ### c) Objetivo del módulo
@@ -213,36 +214,36 @@ enunciado.
 
 ```mermaid
 flowchart LR
-    IN_STATE(["i_state (de FSM)"]) --> DECJ["FLANCO_JUEGO<br/>start, flanco de entrada a JUEGO"]
-    IN_STATE --> DECFN["DEC_FIN<br/>nivel, en GANO o PERDIO"]
-    IN_STATE --> DECF["FLANCO_FIN<br/>pulso_fin, flanco de entrada a GANO/PERDIO"]
-    DECJ -->|"carga"| REG_T["REG_TIEMPO<br/>2 décadas BCD"]
-    DECJ -->|"enciende"| REG_RUN["REG_RUNNING<br/>registro"]
-    DECFN -->|"apaga running"| REG_RUN
-    DECF -->|"reinicia a 00"| REG_T
-    IN_MODO(["modo (de FSM)"]) --> MUX1{{"MUX 2:1<br/>tiempo inicial 60 / 45"}}
-    MUX1 --> REG_T
-    CNT_PRE["CONT_PRESCALER<br/>27 bits descendente"] --> CMP0{"CMP = 0<br/>tick_1hz"}
-    CMP0 --> AND_EN["AND<br/>cten = running · tick_1hz"]
-    REG_RUN --> AND_EN
-    AND_EN -->|en| SUB1["DECREMENTADOR BCD<br/>con préstamo entre décadas"]
-    REG_T --> SUB1
-    SUB1 --> REG_T
-    REG_T --> CMP2{"CMP = 00<br/>zero"}
-    CMP2 -->|"apaga running"| REG_RUN
-    CMP2 --> REG_TA["REG_TIEMPO_AGOTADO<br/>set: running · zero"]
-    REG_RUN --> REG_TA
-    DECJ -->|"limpia"| REG_TA
-    DECF -->|"limpia"| REG_TA
-    REG_TA --> OUT_FIN(["tiempo_agotado (a FSM)"])
-    REG_T --> OUT_TIME(["tiempo (a M01)"])
-    DECF -->|"reinicia"| CNT_ESPERA["CONT_ESPERA<br/>2 bits, satura en 3"]
-    DECFN --> CNT_ESPERA
-    CMP0 --> CNT_ESPERA
-    CNT_ESPERA --> REG_FE["REG_FIN_ESPERA<br/>set: tercer tick en GANO/PERDIO"]
-    DECJ -->|"limpia"| REG_FE
-    DECF -->|"limpia"| REG_FE
-    REG_FE --> OUT_ESPERA(["o_fin_espera (a FSM)"])
+    IN_STATE(["i_state (de FSM)"]) -->|i_state| DECJ["FLANCO_JUEGO<br/>start, flanco de entrada a JUEGO"]
+    IN_STATE -->|i_state| DECFN["DEC_FIN<br/>nivel, en GANO o PERDIO"]
+    IN_STATE -->|i_state| DECF["FLANCO_FIN<br/>pulso_fin, flanco de entrada a GANO/PERDIO"]
+    DECJ -->|"start (carga)"| REG_T["REG_TIEMPO<br/>2 décadas BCD"]
+    DECJ -->|"start (enciende)"| REG_RUN["REG_RUNNING<br/>registro"]
+    DECFN -->|"dec_fin (apaga running)"| REG_RUN
+    DECF -->|"pulso_fin (reinicia a 00)"| REG_T
+    IN_MODO(["modo (de FSM)"]) -->|modo| MUX1{{"MUX 2:1<br/>tiempo inicial 60 / 45"}}
+    MUX1 -->|"tiempo_dec_inicial, tiempo_uni_inicial"| REG_T
+    CNT_PRE["CONT_PRESCALER<br/>27 bits descendente"] -->|prescaler_cnt| CMP0{"CMP = 0<br/>tick_1hz"}
+    CMP0 -->|tick_1hz| AND_EN["AND<br/>cten = running · tick_1hz"]
+    REG_RUN -->|running| AND_EN
+    AND_EN -->|"cten (en)"| SUB1["DECREMENTADOR BCD<br/>con préstamo entre décadas"]
+    REG_T -->|"tiempo_dec, tiempo_uni"| SUB1
+    SUB1 -->|"tiempo_dec, tiempo_uni"| REG_T
+    REG_T -->|"tiempo_dec, tiempo_uni"| CMP2{"CMP = 00<br/>zero"}
+    CMP2 -->|"zero (apaga running)"| REG_RUN
+    CMP2 -->|zero| REG_TA["REG_TIEMPO_AGOTADO<br/>set: running · zero"]
+    REG_RUN -->|running| REG_TA
+    DECJ -->|"start (limpia)"| REG_TA
+    DECF -->|"pulso_fin (limpia)"| REG_TA
+    REG_TA -->|tiempo_agotado| OUT_FIN(["tiempo_agotado (a FSM)"])
+    REG_T -->|tiempo| OUT_TIME(["tiempo (a M01)"])
+    DECF -->|"pulso_fin (reinicia)"| CNT_ESPERA["CONT_ESPERA<br/>2 bits, satura en 3"]
+    DECFN -->|dec_fin| CNT_ESPERA
+    CMP0 -->|tick_1hz| CNT_ESPERA
+    CNT_ESPERA -->|cont_espera| REG_FE["REG_FIN_ESPERA<br/>set: tercer tick en GANO/PERDIO"]
+    DECJ -->|"start (limpia)"| REG_FE
+    DECF -->|"pulso_fin (limpia)"| REG_FE
+    REG_FE -->|o_fin_espera| OUT_ESPERA(["o_fin_espera (a FSM)"])
 ```
 
 ### c) Objetivo del módulo
@@ -276,33 +277,33 @@ ya vive en este módulo.
 
 ```mermaid
 flowchart LR
-    IN_STATE(["i_state (de M13_FSM)"]) --> CMP_CAMBIO{"CMP<br/>actual ≠ foto"}
-    IN_MODO(["i_modo (de M13_FSM)"]) --> CMP_CAMBIO
-    IN_MASC(["i_mascara (de M07)"]) --> CMP_CAMBIO
-    IN_INT(["i_intentos (de M12)"]) --> CMP_CAMBIO
-    IN_RD(["i_rdata: busy, done (de PERIFERICO_LCD)"]) --> FSM_LCD
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| CMP_CAMBIO{"CMP<br/>actual ≠ foto"}
+    IN_MODO(["i_modo (de M13_FSM)"]) -->|i_modo| CMP_CAMBIO
+    IN_MASC(["i_mascara (de M07)"]) -->|i_mascara| CMP_CAMBIO
+    IN_INT(["i_intentos (de M12)"]) -->|i_intentos| CMP_CAMBIO
+    IN_RD(["i_rdata: busy, done (de PERIFERICO_LCD)"]) -->|"busy, done"| FSM_LCD
     CMP_CAMBIO -->|cambio| FSM_LCD["FSM_LCD<br/>IDLE / HOME / SEND / WAIT"]
-    FSM_LCD -->|"captura"| REG_FOTO["REG_FOTO<br/>state, modo, mascara, intentos, last_pos"]
-    IN_STATE --> REG_FOTO
-    IN_MODO --> REG_FOTO
-    IN_MASC --> REG_FOTO
-    IN_INT --> REG_FOTO
-    REG_FOTO --> CMP_CAMBIO
-    FSM_LCD -->|"reinicia / incrementa"| CNT_POS["CONT_POSICION<br/>pos, 4 bits"]
-    CNT_POS --> CMP_FIN{"CMP<br/>pos = last_pos"}
-    REG_FOTO --> CMP_FIN
-    CMP_FIN --> FSM_LCD
-    REG_FOTO --> ROM_TXT["ROM_TEXTO<br/>MODO / GANASTE / PERDISTE"]
-    CNT_POS --> ROM_TXT
-    REG_FOTO --> GEN_JUEGO["PANTALLA_JUEGO<br/>letra o _ , sufijo I:n"]
-    CNT_POS --> GEN_JUEGO
-    IN_WORD(["i_word / i_word_length (de REG_Palabra-escogida)"]) --> GEN_JUEGO
-    ROM_TXT --> MUX1{{"MUX 2:1<br/>texto fijo / juego"}}
-    GEN_JUEGO --> MUX1
-    REG_FOTO --> MUX1
-    MUX1 --> BUS_OUT["LOGICA_BUS<br/>dirección, write_enable, wdata"]
-    FSM_LCD --> BUS_OUT
-    BUS_OUT --> OUT_LCD(["o_addr / o_write_enable / o_wdata (a PERIFERICO_LCD)"])
+    FSM_LCD -->|"estado (captura IDLE→HOME)"| REG_FOTO["REG_FOTO<br/>state, modo, mascara, intentos, last_pos"]
+    IN_STATE -->|i_state| REG_FOTO
+    IN_MODO -->|i_modo| REG_FOTO
+    IN_MASC -->|i_mascara| REG_FOTO
+    IN_INT -->|i_intentos| REG_FOTO
+    REG_FOTO -->|"act_state, act_modo, act_mascara, act_intentos"| CMP_CAMBIO
+    FSM_LCD -->|"estado (reinicia / incrementa pos)"| CNT_POS["CONT_POSICION<br/>pos, 4 bits"]
+    CNT_POS -->|pos| CMP_FIN{"CMP<br/>pos = last_pos"}
+    REG_FOTO -->|act_last_pos| CMP_FIN
+    CMP_FIN -->|"pos = act_last_pos"| FSM_LCD
+    REG_FOTO -->|"act_state, act_modo"| ROM_TXT["ROM_TEXTO<br/>MODO / GANASTE / PERDISTE"]
+    CNT_POS -->|pos| ROM_TXT
+    REG_FOTO -->|"act_mascara, act_intentos"| GEN_JUEGO["PANTALLA_JUEGO<br/>letra o _ , sufijo I:n"]
+    CNT_POS -->|pos| GEN_JUEGO
+    IN_WORD(["i_word / i_word_length (de REG_Palabra-escogida)"]) -->|"i_word, i_word_length"| GEN_JUEGO
+    ROM_TXT -->|f_byte| MUX1{{"MUX 2:1<br/>texto fijo / juego"}}
+    GEN_JUEGO -->|f_byte_juego| MUX1
+    REG_FOTO -->|act_state| MUX1
+    MUX1 -->|"o_wdata[7:0]"| BUS_OUT["LOGICA_BUS<br/>dirección, write_enable, wdata"]
+    FSM_LCD -->|"estado, byte_step"| BUS_OUT
+    BUS_OUT -->|"o_addr, o_write_enable, o_wdata"| OUT_LCD(["o_addr / o_write_enable / o_wdata (a PERIFERICO_LCD)"])
 ```
 
 ### c) Objetivo del módulo
@@ -338,9 +339,9 @@ pinta el que sigue.
 
 ```mermaid
 flowchart LR
-    IN_STATE(["state (de M13_FSM)"]) --> REG_S["REG_ESTADO<br/>registro"]
-    REG_S --> DEC1["DECOD_ESTADO<br/>decodificador"]
-    DEC1 --> OUT_LED(["state_led (a LED_S)"])
+    IN_STATE(["state (de M13_FSM)"]) -->|state| REG_S["REG_ESTADO<br/>registro"]
+    REG_S -->|state_reg| DEC1["DECOD_ESTADO<br/>decodificador"]
+    DEC1 -->|state_led| OUT_LED(["state_led (a LED_S)"])
 ```
 
 ### c) Objetivo del módulo
@@ -364,10 +365,10 @@ activa y resultado final, que es lo que pide el enunciado.
 
 ```mermaid
 flowchart LR
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>detecta entrada a GANO"]
-    DEC_ST --> CNT1["CONT_GANADAS<br/>contador ascendente"]
-    CNT1 --> REG_OUT["REG_SALIDA<br/>registro"]
-    REG_OUT --> OUT_WIN(["num_ganadas (a M01)"])
+    IN_STATE(["state (de M13_FSM)"]) -->|state| DEC_ST["DECOD_ESTADO<br/>detecta entrada a GANO"]
+    DEC_ST -->|entrada_gano| CNT1["CONT_GANADAS<br/>contador ascendente"]
+    CNT1 -->|contador_ganadas| REG_OUT["REG_SALIDA<br/>registro"]
+    REG_OUT -->|num_ganadas| OUT_WIN(["num_ganadas (a M01)"])
 ```
 
 ### c) Objetivo del módulo
@@ -391,21 +392,21 @@ que es lo que hace que BTN_RST reinicie el marcador acumulado como pide el enunc
 
 ```mermaid
 flowchart LR
-    IN_LETRA(["i_letra, i_letra_nueva (de M10, hace de REG_Letra-in)"]) --> CONV["RESTA<br/>ASCII a código 0-25"]
-    CONV --> CMP_POS["CMP_POSICIONES<br/>un comparador por posición"]
-    IN_W(["i_word, i_word_length (de REG_Palabra-escogida)"]) --> CMP_POS
-    CONV --> REG_USADAS["REG_USADAS<br/>letras ya recibidas"]
-    IN_STATE(["i_state (de M13_FSM)"]) --> REG_USADAS
-    IN_STATE --> REG_MASC["REG_MASCARA<br/>posiciones reveladas"]
-    CMP_POS --> EVAL["EVALUACION<br/>acierto / fallo / repetida"]
-    REG_USADAS --> EVAL
-    CMP_POS --> REG_MASC
-    EVAL --> REG_ST["REG_LETRA_STATE<br/>registro"]
-    REG_ST --> OUT_ST(["o_letra_state, o_letra_lista (a M02 y M11)"])
-    EVAL --> OUT_TRY(["o_try (a M12)"])
-    REG_MASC --> OUT_MASC(["o_mascara (a M04 y M11)"])
-    REG_MASC --> CMP_FIN{"CMP<br/>todas reveladas"}
-    CMP_FIN --> OUT_COMP(["o_palabra_completa (a M13_FSM)"])
+    IN_LETRA(["i_letra, i_letra_nueva (de M10, hace de REG_Letra-in)"]) -->|"i_letra, i_letra_nueva"| CONV["RESTA<br/>ASCII a código 0-25"]
+    CONV -->|codigo| CMP_POS["CMP_POSICIONES<br/>un comparador por posición"]
+    IN_W(["i_word, i_word_length (de REG_Palabra-escogida)"]) -->|"i_word, i_word_length"| CMP_POS
+    CONV -->|codigo| REG_USADAS["REG_USADAS<br/>letras ya recibidas"]
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| REG_USADAS
+    IN_STATE -->|i_state| REG_MASC["REG_MASCARA<br/>posiciones reveladas"]
+    CMP_POS -->|hay_coincidencia| EVAL["EVALUACION<br/>acierto / fallo / repetida"]
+    REG_USADAS -->|ya_usada| EVAL
+    CMP_POS -->|"coincide, relleno"| REG_MASC
+    EVAL -->|"o_letra_state, o_letra_lista"| REG_ST["REG_LETRA_STATE<br/>registro"]
+    REG_ST -->|"o_letra_state, o_letra_lista"| OUT_ST(["o_letra_state, o_letra_lista (a M02 y M11)"])
+    EVAL -->|o_try| OUT_TRY(["o_try (a M12)"])
+    REG_MASC -->|o_mascara| OUT_MASC(["o_mascara (a M04 y M11)"])
+    REG_MASC -->|mascara| CMP_FIN{"CMP<br/>todas reveladas"}
+    CMP_FIN -->|o_palabra_completa| OUT_COMP(["o_palabra_completa (a M13_FSM)"])
 ```
 
 ### c) Objetivo del módulo
@@ -457,17 +458,17 @@ Codificación de `o_letra_state`:
 
 ```mermaid
 flowchart LR
-    REG_LFSR["REG_LFSR<br/>registro de desplazamiento"] --> XOR1["XOR<br/>realimentación"]
-    XOR1 --> REG_LFSR
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>detecta entrada a CARGA"]
-    DEC_ST -->|muestrea| REG_LFSR
-    IN_MODO(["modo (de M13_FSM)"]) --> MUX1{{"MUX 2:1<br/>rango de índices"}}
-    REG_LFSR --> MUX1
-    IN_BANK(["bank_word (de REG_WBank)"]) --> REG_SEL["REG_WORD_SEL<br/>registro"]
-    MUX1 --> REG_SEL
-    REG_SEL --> CMP1{"CMP<br/>índice válido"}
-    CMP1 --> OUT_VALID(["valid_word (a M13_FSM)"])
-    REG_SEL --> OUT_WORD(["word (a REG_W)"])
+    REG_LFSR["REG_LFSR<br/>registro de desplazamiento"] -->|"reg_lfsr[5], reg_lfsr[4]"| XOR1["XOR<br/>realimentación"]
+    XOR1 -->|feedback| REG_LFSR
+    IN_STATE(["state (de M13_FSM)"]) -->|i_state| DEC_ST["DECOD_ESTADO<br/>detecta entrada a CARGA"]
+    DEC_ST -->|"pulso_carga (muestrea)"| REG_LFSR
+    IN_MODO(["modo (de M13_FSM)"]) -->|i_modo| MUX1{{"MUX 2:1<br/>rango de índices"}}
+    REG_LFSR -->|reg_lfsr| MUX1
+    IN_BANK(["bank_word (de REG_WBank)"]) -->|i_bank_word| REG_SEL["REG_WORD_SEL<br/>registro"]
+    MUX1 -->|valido| REG_SEL
+    REG_SEL -->|reg_cargado| CMP1{"CMP<br/>índice válido"}
+    CMP1 -->|o_valid_word| OUT_VALID(["valid_word (a M13_FSM)"])
+    REG_SEL -->|o_word| OUT_WORD(["word (a REG_W)"])
 ```
 
 ### c) Objetivo del módulo
@@ -495,12 +496,12 @@ libre todo el tiempo y este módulo lo muestrea al ver que `state` entró a CARG
 
 ```mermaid
 flowchart LR
-    IN_SEL(["btn_sel"]) --> DEB1["debounce_sel (debounce.sv)<br/>sincronizador + contador de estabilidad"]
-    DEB1 --> EDGE1["DETECTOR_FLANCO<br/>flip-flop + AND"]
-    EDGE1 --> OUT_SEL(["btn_sel_pulse (a FSM)"])
-    IN_OK(["btn_ok"]) --> DEB2["debounce_ok (debounce.sv)<br/>sincronizador + contador de estabilidad"]
-    DEB2 --> EDGE2["DETECTOR_FLANCO<br/>flip-flop + AND"]
-    EDGE2 --> OUT_OK(["btn_ok_pulse (a FSM)"])
+    IN_SEL(["btn_sel"]) -->|btn_sel| DEB1["debounce_sel (debounce.sv)<br/>sincronizador + contador de estabilidad"]
+    DEB1 -->|btn_sel_db| EDGE1["DETECTOR_FLANCO<br/>flip-flop + AND"]
+    EDGE1 -->|btn_sel_pulse| OUT_SEL(["btn_sel_pulse (a FSM)"])
+    IN_OK(["btn_ok"]) -->|btn_ok| DEB2["debounce_ok (debounce.sv)<br/>sincronizador + contador de estabilidad"]
+    DEB2 -->|btn_ok_db| EDGE2["DETECTOR_FLANCO<br/>flip-flop + AND"]
+    EDGE2 -->|btn_ok_pulse| OUT_OK(["btn_ok_pulse (a FSM)"])
 ```
 
 ### c) Objetivo del módulo
@@ -525,18 +526,18 @@ pulsos limpios `sel` y `ok` directamente a M13_FSM.
 
 ```mermaid
 flowchart LR
-    IN_RD(["i_rdata (de ARBITRO_UART)"]) --> FSM_BUS["FSM_BUS<br/>ESPERA / LEE / LIMPIA"]
-    IN_RD --> CMP_RNG{"CMP A-Z<br/>comparador de rango"}
-    IN_STATE(["i_state (de M13_FSM)"]) --> CMP_JG{"CMP = JUEGO<br/>hay partida activa"}
-    FSM_BUS --> AND1["AND<br/>letra válida y en partida"]
-    CMP_RNG --> AND1
-    CMP_JG --> AND1
-    AND1 --> REG_VALID["REG_VALID<br/>registro"]
-    IN_RD --> REG_LETRA["REG_LETRA<br/>registro"]
-    FSM_BUS --> REG_LETRA
-    REG_LETRA --> OUT_LETRA(["o_letra (a M07)"])
-    REG_VALID --> OUT_VW(["o_valid_w (a M07)"])
-    FSM_BUS --> OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
+    IN_RD(["i_rdata (de ARBITRO_UART)"]) -->|new_rx| FSM_BUS["FSM_BUS<br/>ESPERA / LEE / LIMPIA"]
+    IN_RD -->|"i_rdata[7:0]"| CMP_RNG{"CMP A-Z<br/>comparador de rango"}
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| CMP_JG{"CMP = JUEGO<br/>hay partida activa"}
+    FSM_BUS -->|"estado = LEE"| AND1["AND<br/>letra válida y en partida"]
+    CMP_RNG -->|en_rango| AND1
+    CMP_JG -->|"i_state = JUEGO"| AND1
+    AND1 -->|o_valid_w| REG_VALID["REG_VALID<br/>registro"]
+    IN_RD -->|"i_rdata[7:0]"| REG_LETRA["REG_LETRA<br/>registro"]
+    FSM_BUS -->|"estado = LEE"| REG_LETRA
+    REG_LETRA -->|o_letra| OUT_LETRA(["o_letra (a M07)"])
+    REG_VALID -->|o_valid_w| OUT_VW(["o_valid_w (a M07)"])
+    FSM_BUS -->|"o_addr, o_write_enable, o_wdata"| OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
 ```
 
 ### c) Objetivo del módulo
@@ -577,23 +578,23 @@ diagrama de tercer nivel y en el top no hace falta un registro aparte.
 
 ```mermaid
 flowchart LR
-    IN_STATE(["i_state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>cuál trama toca enviar"]
-    IN_MODO(["i_modo (de M13_FSM)"]) --> REG_FRAME["REG_TRAMA<br/>registro"]
-    DEC_ST --> PEND["BANDERAS_PENDIENTE<br/>ini / letra / fin"]
-    IN_LST(["i_letra_state, i_letra_lista (de M07)"]) --> PEND
-    IN_LST --> REG_FRAME
-    IN_MASK(["i_mascara (de M07)"]) --> REG_FRAME
-    IN_TRY(["i_intentos (de M12)"]) --> REG_FRAME
-    IN_LEN(["i_word_length (de REG_Palabra-escogida)"]) --> REG_FRAME
-    PEND --> FSM["FSM_BUS<br/>IDLE / LOAD_DATA / LOAD_CTRL / WAIT"]
-    IN_LIBRE(["i_bus_libre (de ARBITRO_UART)"]) --> FSM
-    IN_RD(["i_rdata (de ARBITRO_UART)"]) --> FSM
-    PEND --> REG_FRAME
-    REG_FRAME --> MUX1{{"MUX<br/>selección de byte"}}
-    CNT_BYTE["CONT_BYTE<br/>contador"] --> MUX1
-    FSM --> CNT_BYTE
-    MUX1 --> OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
-    FSM --> OUT_BUS
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| DEC_ST["DECOD_ESTADO<br/>cuál trama toca enviar"]
+    IN_MODO(["i_modo (de M13_FSM)"]) -->|i_modo| REG_FRAME["REG_TRAMA<br/>registro"]
+    DEC_ST -->|"pulso_ini, pulso_fin"| PEND["BANDERAS_PENDIENTE<br/>ini / letra / fin"]
+    IN_LST(["i_letra_state, i_letra_lista (de M07)"]) -->|i_letra_lista| PEND
+    IN_LST -->|i_letra_state| REG_FRAME
+    IN_MASK(["i_mascara (de M07)"]) -->|i_mascara| REG_FRAME
+    IN_TRY(["i_intentos (de M12)"]) -->|i_intentos| REG_FRAME
+    IN_LEN(["i_word_length (de REG_Palabra-escogida)"]) -->|i_word_length| REG_FRAME
+    PEND -->|hay_pendiente| FSM["FSM_BUS<br/>IDLE / LOAD_DATA / LOAD_CTRL / WAIT"]
+    IN_LIBRE(["i_bus_libre (de ARBITRO_UART)"]) -->|i_bus_libre| FSM
+    IN_RD(["i_rdata (de ARBITRO_UART)"]) -->|send_busy| FSM
+    PEND -->|consumir| REG_FRAME
+    REG_FRAME -->|reg_trama| MUX1{{"MUX<br/>selección de byte"}}
+    CNT_BYTE["CONT_BYTE<br/>contador"] -->|cnt_byte| MUX1
+    FSM -->|estado_wait_libre| CNT_BYTE
+    MUX1 -->|o_wdata| OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
+    FSM -->|"o_addr, o_write_enable"| OUT_BUS
 ```
 
 ### c) Objetivo del módulo
@@ -650,12 +651,12 @@ contenido, no puertos separados.
 
 ```mermaid
 flowchart LR
-    IN_TRY(["i_try (de M07)"]) --> CNT1["CONT_INTENTOS<br/>contador saturado en 6"]
-    IN_STATE(["i_state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>limpia al entrar a CARGA"]
-    DEC_ST --> CNT1
-    CNT1 --> CMP1{"CMP >= 6<br/>intentos agotados"}
-    CMP1 --> OUT_FSM(["o_intentos_agotados (a M13_FSM)"])
-    CNT1 --> OUT_M11(["o_intentos (a M04 y M11)"])
+    IN_TRY(["i_try (de M07)"]) -->|i_try| CNT1["CONT_INTENTOS<br/>contador saturado en 6"]
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| DEC_ST["DECOD_ESTADO<br/>limpia al entrar a CARGA"]
+    DEC_ST -->|"i_state = CARGA (limpia)"| CNT1
+    CNT1 -->|cuenta| CMP1{"CMP >= 6<br/>intentos agotados"}
+    CMP1 -->|o_intentos_agotados| OUT_FSM(["o_intentos_agotados (a M13_FSM)"])
+    CNT1 -->|o_intentos| OUT_M11(["o_intentos (a M04 y M11)"])
 ```
 
 ### c) Objetivo del módulo

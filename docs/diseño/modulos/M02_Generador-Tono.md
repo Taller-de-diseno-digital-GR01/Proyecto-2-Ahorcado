@@ -8,20 +8,20 @@ M02_Generador-Tono
 
 ```mermaid
 flowchart LR
-    IN_STATE(["state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>detecta fin de partida"]
-    DEC_ST --> REG_EN["REG_ENABLE<br/>registro"]
-    IN_LST(["letra_state (de M07)"]) --> MUX1{{"MUX 3:1<br/>tono acierto/fallo/fin"}}
-    IN_LL(["letra_lista (de M07)"]) --> REG_EN
-    IN_LL --> MUX1
-    DEC_ST --> MUX1
-    MUX1 --> REG_N["REG_N<br/>registro (valor N)"]
-    REG_EN --> CNT_DIV["CONT_DIVISOR<br/>contador (prescaler)"]
-    REG_N --> CMP1{"CMP = N<br/>comparador"}
-    CNT_DIV --> CMP1
-    CMP1 -->|toggle| REG_SQ["REG_ONDA<br/>flip-flop T"]
-    REG_SQ --> OUT_SND(["sound (a BUZZER)"])
-    CNT_DUR["CONT_DURACION<br/>contador"] -->|fin| REG_EN
-    REG_EN --> CNT_DUR
+    IN_STATE(["state (de M13_FSM)"]) -->|i_state| DEC_ST["DECOD_ESTADO<br/>detecta fin de partida"]
+    DEC_ST -->|pulso_fin| REG_EN["REG_ENABLE<br/>registro"]
+    IN_LST(["letra_state (de M07)"]) -->|i_letra_state| MUX1{{"MUX 3:1<br/>tono acierto/fallo/fin"}}
+    IN_LL(["letra_lista (de M07)"]) -->|i_letra_lista| REG_EN
+    IN_LL -->|i_letra_lista| MUX1
+    DEC_ST -->|pulso_fin| MUX1
+    MUX1 -->|next_n| REG_N["REG_N<br/>registro (valor N)"]
+    REG_EN -->|reg_enable| CNT_DIV["CONT_DIVISOR<br/>contador (prescaler)"]
+    REG_N -->|reg_n| CMP1{"CMP = N<br/>comparador"}
+    CNT_DIV -->|cont_divisor| CMP1
+    CMP1 -->|"cont_divisor = reg_n (toggle)"| REG_SQ["REG_ONDA<br/>flip-flop T"]
+    REG_SQ -->|o_sound| OUT_SND(["sound (a BUZZER)"])
+    CNT_DUR["CONT_DURACION<br/>contador"] -->|"cont_duracion = DUR_CYCLES (fin)"| REG_EN
+    REG_EN -->|reg_enable| CNT_DUR
 ```
 
 ## c) Objetivo del módulo

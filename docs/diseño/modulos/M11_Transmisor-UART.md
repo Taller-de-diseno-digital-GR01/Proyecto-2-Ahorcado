@@ -8,23 +8,23 @@ M11_Transmisor-UART
 
 ```mermaid
 flowchart LR
-    IN_STATE(["i_state (de M13_FSM)"]) --> DEC_ST["DECOD_ESTADO<br/>cuál trama toca enviar"]
-    IN_MODO(["i_modo (de M13_FSM)"]) --> REG_FRAME["REG_TRAMA<br/>registro"]
-    DEC_ST --> PEND["BANDERAS_PENDIENTE<br/>ini / letra / fin"]
-    IN_LST(["i_letra_state, i_letra_lista (de M07)"]) --> PEND
-    IN_LST --> REG_FRAME
-    IN_MASK(["i_mascara (de M07)"]) --> REG_FRAME
-    IN_TRY(["i_intentos (de M12)"]) --> REG_FRAME
-    IN_LEN(["i_word_length (de REG_Palabra-escogida)"]) --> REG_FRAME
-    PEND --> FSM["FSM_BUS<br/>IDLE / LOAD_DATA / LOAD_CTRL / WAIT"]
-    IN_LIBRE(["i_bus_libre (de ARBITRO_UART)"]) --> FSM
-    IN_RD(["i_rdata (de ARBITRO_UART)"]) --> FSM
-    PEND --> REG_FRAME
-    REG_FRAME --> MUX1{{"MUX<br/>selección de byte"}}
-    CNT_BYTE["CONT_BYTE<br/>contador"] --> MUX1
-    FSM --> CNT_BYTE
-    MUX1 --> OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
-    FSM --> OUT_BUS
+    IN_STATE(["i_state (de M13_FSM)"]) -->|i_state| DEC_ST["DECOD_ESTADO<br/>cuál trama toca enviar"]
+    IN_MODO(["i_modo (de M13_FSM)"]) -->|i_modo| REG_FRAME["REG_TRAMA<br/>registro"]
+    DEC_ST -->|"pulso_ini, pulso_fin"| PEND["BANDERAS_PENDIENTE<br/>ini / letra / fin"]
+    IN_LST(["i_letra_state, i_letra_lista (de M07)"]) -->|i_letra_lista| PEND
+    IN_LST -->|i_letra_state| REG_FRAME
+    IN_MASK(["i_mascara (de M07)"]) -->|i_mascara| REG_FRAME
+    IN_TRY(["i_intentos (de M12)"]) -->|i_intentos| REG_FRAME
+    IN_LEN(["i_word_length (de REG_Palabra-escogida)"]) -->|i_word_length| REG_FRAME
+    PEND -->|hay_pendiente| FSM["FSM_BUS<br/>IDLE / LOAD_DATA / LOAD_CTRL / WAIT"]
+    IN_LIBRE(["i_bus_libre (de ARBITRO_UART)"]) -->|i_bus_libre| FSM
+    IN_RD(["i_rdata (de ARBITRO_UART)"]) -->|send_busy| FSM
+    PEND -->|consumir| REG_FRAME
+    REG_FRAME -->|reg_trama| MUX1{{"MUX<br/>selección de byte"}}
+    CNT_BYTE["CONT_BYTE<br/>contador"] -->|cnt_byte| MUX1
+    FSM -->|estado_wait_libre| CNT_BYTE
+    MUX1 -->|o_wdata| OUT_BUS(["o_addr, o_write_enable, o_wdata (a ARBITRO_UART)"])
+    FSM -->|"o_addr, o_write_enable"| OUT_BUS
 ```
 
 ## c) Objetivo del módulo
@@ -328,3 +328,31 @@ Conexiones en `src/design/top.sv`, instancia `u_transmisor_uart`:
 
 Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño
 que se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.
+
+---
+
+## Verificación
+
+`src/sim/tb_transmisor_uart.sv` es autoverificable, corre con `make sim TB=transmisor_uart` y
+reporta 28 pruebas sin fallos. No instancia `PERIFERICO_UART`, lo modela con un `send` que se
+sostiene 20 ciclos y se baja solo, que es el handshake que el módulo sondea. Cada trama se captura
+byte a byte del bus y se compara entera contra la esperada. Comprueba:
+
+- Después del reset el módulo no escribe nada, y en selección de modo tampoco.
+- La trama de inicio son tres bytes, la `I`, el modo y la longitud de la palabra.
+- La trama de letra son cinco bytes, la `L`, el resultado, los intentos acumulados, y la máscara
+  con el byte bajo primero.
+- Un fallo también manda trama, con los intentos ya actualizados, y una repetida también, que es lo
+  que evita que la PC se quede esperando respuesta.
+- La trama de fin son dos bytes, la `F` y la causa.
+- Las tres causas de fin. Con seis intentos la causa son los intentos, con cinco es el tiempo
+  aunque todavía quedara uno, y sin ningún fallo también sale tiempo.
+- Que la causa se congele al entrar a PERDIO y no cambie después.
+
+Los dos últimos casos son los de las banderas pendientes, que es la parte del módulo que más fácil
+se rompe. Uno manda una letra mientras la trama de inicio todavía está saliendo y verifica que el
+inicio salga entero y que la letra arranque después, sin perderse. El otro deja letra y fin
+pendientes en el mismo ciclo y verifica el orden, primero el fin porque a la PC le sirve más saber
+que la partida terminó, y la letra igual sale después en vez de descartarse.
+
+`make synth SYNTH_TOP=transmisor_uart` pasa sin `Latch inferred` en el log.

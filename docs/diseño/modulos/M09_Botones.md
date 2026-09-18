@@ -7,12 +7,12 @@ M09_Botones
 
 ```mermaid
 flowchart LR
-    IN_SEL(["btn_sel"]) --> DEB1["debounce_sel (debounce.sv)<br/>sincronizador + contador de estabilidad"]
-    DEB1 --> EDGE1["DETECTOR_FLANCO<br/>flip-flop + AND"]
-    EDGE1 --> OUT_SEL(["btn_sel_pulse (a FSM)"])
-    IN_OK(["btn_ok"]) --> DEB2["debounce_ok (debounce.sv)<br/>sincronizador + contador de estabilidad"]
-    DEB2 --> EDGE2["DETECTOR_FLANCO<br/>flip-flop + AND"]
-    EDGE2 --> OUT_OK(["btn_ok_pulse (a FSM)"])
+    IN_SEL(["btn_sel"]) -->|btn_sel| DEB1["debounce_sel (debounce.sv)<br/>sincronizador + contador de estabilidad"]
+    DEB1 -->|btn_sel_db| EDGE1["DETECTOR_FLANCO<br/>flip-flop + AND"]
+    EDGE1 -->|btn_sel_pulse| OUT_SEL(["btn_sel_pulse (a FSM)"])
+    IN_OK(["btn_ok"]) -->|btn_ok| DEB2["debounce_ok (debounce.sv)<br/>sincronizador + contador de estabilidad"]
+    DEB2 -->|btn_ok_db| EDGE2["DETECTOR_FLANCO<br/>flip-flop + AND"]
+    EDGE2 -->|btn_ok_pulse| OUT_OK(["btn_ok_pulse (a FSM)"])
 ```
 
 El filtro de rebote está en un submódulo aparte, `debounce.sv`, que `botones.sv` instancia dos
