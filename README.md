@@ -23,14 +23,25 @@ displays de 7 segmentos, un LED de estado y un buzzer.
 
 El enunciado completo del proyecto está en [`EL3313_proyecto2_2S2026.pdf`](EL3313_proyecto2_2S2026.pdf).
 
+## Informe técnico
+
+**[Informe técnico del proyecto](docs/informe/informe.md)**: fundamentación teórica, arquitectura
+*top-down*, decisiones de diseño, interfaces, periféricos LCD y UART, protocolo, diagramas de estado,
+estrategia de validación, resultados de simulación (con formas de onda), uso de recursos, *timing*,
+simulación post-implementación temporizada, problemas encontrados y conclusiones.
+
 ## Estructura del repo
 
 - `EL3313_proyecto2_2S2026.pdf` — enunciado e indicaciones del proyecto.
 - `docs/pmodclp_rm.pdf` — manual de referencia del módulo LCD PmodCLP.
 - `docs/diseño/` — planteamiento del diseño: diagramas por nivel y specs por módulo.
-- `docs/informe/` — informe técnico final.
+- `docs/informe/` — [informe técnico final](docs/informe/informe.md); las figuras (formas de onda
+  y esquemático) están en `docs/informe/img/`.
 - `src/design/` — RTL en SystemVerilog, un archivo por módulo.
-- `src/sim/` — testbenches autoverificables, uno por módulo (`tb_<modulo>.sv`).
+- `src/sim/` — testbenches autoverificables, uno por módulo (`tb_<modulo>.sv`). Además:
+  `tb_top_timesim.sv`, prueba del sistema completo solo por puertos, pensada para la simulación
+  post-implementación temporizada, y `recortar_vcd.py`, que recorta un VCD a una ventana de tiempo
+  para exportarlo a SVG.
 - `src/fpga/` — constraints de la Basys3 (`basys3.xdc`) y scripts de síntesis/programación.
 - `src/fpga/harness/` — top-levels descartables para probar un módulo suelto en la FPGA sin
   esperar a que exista un `top.sv` integrado (ver `src/fpga/harness/CONVENCION.txt`).
@@ -103,6 +114,9 @@ Los dos bloques del subsistema UART/LCD que no llevan número de módulo:
   simulaciones (`sim`/`test`) en cualquier sistema operativo.
 - [GTKWave](https://gtkwave.sourceforge.net/) — opcional, solo para inspeccionar formas de onda
   (`make wave`). Lo trae el mismo instalador de Icarus Verilog en Windows.
+- [vecdump](https://codeberg.org/mcit39/vecdump) — opcional, para exportar formas de onda a SVG
+  (`make dump`). Es C99 sin dependencias:
+  `git clone https://codeberg.org/mcit39/vecdump.git && cd vecdump && make && make install PREFIX=$HOME/.local`.
 - [yosys](https://github.com/YosysHQ/yosys) — obligatorio en FreeBSD/Linux/macOS/WSL como parte
   del toolchain de síntesis completo; opcional en Windows nativo (solo para el chequeo genérico
   de latches con `make synth`).
@@ -159,6 +173,7 @@ make sim TB=<modulo>            # compila y corre un testbench puntual
 make test                       # corre todos los testbenches
 make synth SYNTH_TOP=<modulo>   # sintetiza con yosys y revisa que no haya latches inferidos
 make wave TB=<modulo>           # corre la simulación y abre GTKWave
+make dump TB=<modulo> SIGS=a,b  # corre la simulación y exporta las señales a un SVG con vecdump
 make test-app                   # pruebas de la app de PC (unittest), no necesita la tarjeta
 
 # Windows
@@ -169,6 +184,31 @@ make -f Makefile.windows wave TB=<modulo>
 ```
 
 `make list` (o `make -f Makefile.windows list`) muestra los testbenches disponibles.
+
+`make dump` acepta además `DESDE=`/`HASTA=` para recortar una ventana de tiempo (en unidades del
+*timescale* del VCD, ps con Icarus) y `SVG=` para elegir el archivo de salida:
+
+```sh
+make dump TB=receptor_uart SIGS=clk_tb,rx_data_rdy,o_addr_tb,o_letra_tb,o_valid_w_tb \
+          DESDE=82600000 HASTA=82720000 SVG=docs/informe/img/sim_receptor_bus.svg
+```
+
+### Simulación post-implementación temporizada (Vivado)
+
+`tb_top_timesim.sv` no usa referencias internas (`dut.*`), porque en el netlist temporizado ya no
+existen: manda letras por `rx_i` y valida las tramas que la FPGA devuelve por `tx_o`. Para
+simularlo en Vivado:
+
+1. Agregar `src/sim/tb_top_timesim.sv` a *Simulation Sources* y marcarlo como *top*.
+2. Para que la simulación no tarde más de una hora esperando el *debounce* de 10,5 ms, implementar
+   con el parámetro del top `N_DEBOUNCE=12` (*Settings → General → Generics/Parameters*) y pasarle
+   el mismo valor al testbench (`-generic_top "N_DEBOUNCE=12"` en las opciones de `xelab`). La
+   tarjeta se programa siempre con el valor por defecto, 21.
+3. Poner `xsim.simulate.runtime` en `all` y correr *Run Post-Implementation Timing Simulation*.
+
+En Ubuntu y derivadas, el g++ que trae Vivado no encuentra `crt1.o` y la elaboración falla con
+`[XSIM 43-3238] Failed to link the design`. Se arregla abriendo Vivado con
+`LIBRARY_PATH=/usr/lib/x86_64-linux-gnu vivado`.
 
 ## Ejecución
 
