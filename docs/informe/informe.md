@@ -258,108 +258,129 @@ incluye un objetivo `make synth` que falla si yosys reporta algún `Latch inferr
 
 ### 4.1 Arquitectura *top-down*
 
-El diseño se hizo de arriba hacia abajo en cuatro niveles. El planteamiento completo está en
-[`docs/diseño/diseño.md`](../diseño/diseño.md). Aquí se resume la arquitectura final.
+El diseño se hizo de arriba hacia abajo en cuatro niveles: sistema, bloques funcionales, módulos
+interconectados y el diseño interno de cada módulo. El planteamiento completo está en
+[`docs/diseño/diseño.md`](../diseño/diseño.md), cuyos diagramas corresponden a las conexiones de
+`src/design/top.sv`. Aquí se resume la arquitectura final.
 
-**Nivel 1: el sistema.**
+**Nivel 1: el sistema.** La lógica del juego vive en la FPGA; la PC es solo una terminal que envía
+letras A–Z y muestra lo que la FPGA le reporta por UART.
 
 ```mermaid
 flowchart LR
-    CLK[CLK 100 MHz] --> SIS
-    SEL[BTN_SEL] --> SIS
-    OK[BTN_OK] --> SIS
-    RST[BTN_RST] --> SIS
-    PC_IN["letra A-Z (PC)"] --> SIS
-    SIS["SISTEMA_AHORCADO<br/>FPGA Basys 3 + app de PC"]
-    SIS --> T7["7 seg: tiempo"]
-    SIS --> G7["7 seg: ganadas"]
-    SIS --> LCD["LCD 16x2"]
-    SIS --> BZ[buzzer]
-    SIS --> LED[LED de estado]
-    SIS --> PC_OUT["pantalla de la PC"]
+    CLK["clk 100 MHz"] --> SYS
+    RST["BTN_RST / rst"] --> SYS
+    SEL["BTN_SEL"] --> SYS
+    OK["BTN_OK"] --> SYS
+    PCIN["PC: letra A-Z por UART"] --> SYS
+
+    SYS["SISTEMA AHORCADO<br/>Basys 3 + terminal PC"]
+
+    SYS --> UARTOUT["UART TX hacia PC"]
+    SYS --> LCD["PmodCLP 16x2<br/>modo / palabra / resultado"]
+    SYS --> DISP["Display 4 dígitos<br/>ganadas + tiempo"]
+    SYS --> LED["state_led[1:0]"]
+    SYS --> BUZ["buzzer"]
 ```
 
-**Nivel 2: bloques funcionales.**
+**Nivel 2: bloques funcionales.** La FSM no envía órdenes puntuales a cada bloque: publica `state` y
+`modo`, y cada bloque reconoce el estado que le interesa.
 
 ```mermaid
-flowchart TD
-    ESL["E_S_LOCALES<br/>botones, 7 seg, LED, buzzer"]
-    CJ["CONTROL_JUEGO<br/>FSM + comparador + intentos<br/>+ receptor/transmisor + LCD"]
-    BP["BANCO_PALABRAS<br/>ROM + LFSR"]
-    TMP["TEMPORIZADOR"]
-    PLCD["PERIFERICO_LCD"]
-    PUART["PERIFERICO_UART"]
-    PC["APP_PC (Python)"]
+flowchart LR
+    BTN["BTN_SEL / BTN_OK"] --> IO["E_S_LOCALES<br/>M01 M02 M05 M06 M09"]
+    IO -->|"sel_pulse / ok_pulse"| CTRL["CONTROL_JUEGO<br/>M04 M07 M10 M11 M12 M13<br/>+ árbitro UART"]
 
-    ESL -->|sel, ok| CJ
-    CJ -->|state, modo| BP
-    BP -->|word, valid_word| CJ
-    CJ -->|state, modo| TMP
-    TMP -->|tiempo_agotado, fin_espera| CJ
-    TMP -->|tiempo BCD| ESL
-    CJ -->|state, letra_state| ESL
-    CJ <-->|bus 32 b| PLCD
-    CJ <-->|bus 32 b| PUART
-    PUART <-->|TX/RX 115200| PC
+    CTRL <-->|"state, modo / word, valid_word"| BANK["BANCO_PALABRAS<br/>M08 LFSR + M14 ROM"]
+    CTRL <-->|"state, modo / flags"| TIMER["TEMPORIZADOR<br/>M03"]
+    TIMER -->|"tiempo BCD"| IO
+    CTRL -->|"state, letra_state"| IO
+
+    CTRL <-->|"bus 32 bits"| PUART["PERIFERICO_UART<br/>registros + uart_rx/uart_tx"]
+    CTRL <-->|"bus 32 bits"| PLCD["PERIFERICO_LCD<br/>HD44780/KS0066U"]
+
+    PC["APP_PC"] <-->|"UART 115200 8N1"| PUART
+
+    PLCD --> LCD["PmodCLP"]
+    IO --> DISP["7 segmentos"]
+    IO --> LED["state_led[1:0]"]
+    IO --> BUZ["buzzer"]
 ```
 
 **Nivel 3: módulos implementados** (archivos en `src/design/`).
 
 ```mermaid
 flowchart TD
-    subgraph CONTROL_JUEGO
-        FSM[M13 fsm]
-        CMP[M07 comparador_letra]
-        INT[M12 contador_intentos]
-        RX[M10 receptor_uart]
-        TX[M11 transmisor_uart]
-        ARB[arbitro_uart]
-        MLCD[M04 mostrar_lcd]
-    end
-    subgraph BANCO_PALABRAS
-        LFSR[M08 lfsr]
-        ROM[banco_palabras]
-    end
-    subgraph E_S_LOCALES
-        BOT[M09 botones]
-        MAR[M01 marcador]
-        TON[M02 generador_tono]
-        EST[M05 Estado]
-        GAN[M06 Ganadas]
-    end
-    TEMP[M03 temporizador]
-    PU[periferico_uart]
-    PL[periferico_lcd]
+    BTNSEL["btn_sel"] --> M09["M09 Botones"]
+    BTNOK["btn_ok"] --> M09
+    M09 -->|"sel_pulse, ok_pulse"| M13["M13 FSM"]
 
-    BOT -->|sel, ok| FSM
-    ROM -->|bank_word| LFSR
-    LFSR -->|bank_addr| ROM
-    LFSR -->|word, valid_word| FSM
-    LFSR -->|word| CMP
-    LFSR -->|word| MLCD
-    RX -->|letra, valida| CMP
-    CMP -->|try| INT
-    CMP -->|palabra_completa| FSM
-    CMP -->|mascara| MLCD
-    CMP -->|letra_state, lista, mascara| TX
-    CMP -->|letra_state, lista| TON
-    INT -->|intentos_agotados| FSM
-    INT -->|intentos| TX
-    INT -->|intentos| MLCD
-    TEMP -->|tiempo_agotado, fin_espera| FSM
-    TEMP -->|tiempo| MAR
-    FSM -->|state| GAN
-    GAN -->|num_ganadas| MAR
-    FSM -->|state| EST
-    FSM -->|state| TON
-    RX <--> ARB
-    TX <--> ARB
-    ARB <-->|bus 32 b| PU
-    MLCD <-->|bus 32 b| PL
+    M13 -->|"state, modo"| M03["M03 Temporizador"]
+    M13 -->|"state, modo"| M08["M08 LFSR"]
+    M13 -->|"state"| M07["M07 Comparador"]
+    M13 -->|"state"| M12["M12 Intentos"]
+    M13 -->|"state"| M10["M10 Receptor UART"]
+    M13 -->|"state, modo"| M11["M11 Transmisor UART"]
+    M13 -->|"state, modo"| M04["M04 Mostrar LCD"]
+    M13 -->|"state"| M02["M02 Tono"]
+    M13 -->|"state"| M05["M05 Estado"]
+    M13 -->|"state"| M06["M06 Ganadas"]
+
+    M08 -->|"bank_addr[5:0]"| M14["M14 Banco Palabras"]
+    M14 -->|"bank_word[63:0]"| M08
+    M08 -->|"word[63:0]"| WORD["Palabra seleccionada<br/>longitud + 12 códigos"]
+    M08 -->|"valid_word"| M13
+
+    WORD -->|"word[59:0], length[3:0]"| M07
+    WORD -->|"length[3:0]"| M11
+    WORD -->|"conversión 5b→ASCII en top"| M04
+
+    M10 -->|"letra_in[7:0], letra_nueva"| M07
+    M07 -->|"letra_state, letra_lista"| M11
+    M07 -->|"letra_state, letra_lista"| M02
+    M07 -->|"mascara[11:0]"| M11
+    M07 -->|"mascara[11:0]"| M04
+    M07 -->|"try"| M12
+    M07 -->|"palabra_completa"| M13
+
+    M12 -->|"intentos[2:0]"| M11
+    M12 -->|"intentos[2:0]"| M04
+    M12 -->|"intentos_agotados"| M13
+
+    M03 -->|"tiempo_agotado, fin_espera"| M13
+    M03 -->|"tiempo BCD[7:0]"| M01["M01 Marcador"]
+
+    M06 -->|"num_ganadas[6:0]"| M01
+    M01 -->|"seg, an, dp"| DISP["Display 4 dígitos"]
+    M05 -->|"state_led[1:0]"| LED["LEDs"]
+    M02 -->|"sound"| BUZ["Buzzer"]
+
+    M10 <-->|"bus RX"| ARB["Árbitro UART"]
+    M11 <-->|"bus TX"| ARB
+    ARB <-->|"bus 32b"| PUART["Periférico UART"]
+    PC["APP PC"] <-->|"RX/TX 115200"| PUART
+
+    M04 <-->|"bus 32b"| PLCD["Periférico LCD"]
+    PLCD --> LCD["PmodCLP"]
 ```
 
-Por claridad, `state` y `modo` salen de la FSM hacia casi todos los módulos. En el diagrama solo se
-dibujan algunas de esas conexiones.
+Observaciones de integración:
+
+- `word[63:0]` sale directamente de `lfsr.sv`; `top.sv` hace el *slicing* de la palabra y la
+  conversión de los códigos de 5 bits a ASCII para `mostrar_lcd`. `palabra_escogida.sv` existe en el
+  repositorio pero no está instanciado.
+- El receptor y el transmisor UART no se conectan directamente al periférico: pasan por
+  `arbitro_uart.sv`.
+- `mostrar_lcd.sv` escribe al periférico LCD por bus; no genera directamente `RS`, `RW`, `E` ni
+  `lcd_data`.
+- El display es uno solo de cuatro dígitos: AN0/AN1 muestran las partidas ganadas y AN2/AN3 el
+  tiempo restante.
+
+**Nivel 4: diseño interno de cada módulo.** Cada módulo (M01–M14, `arbitro_uart`, `periferico_uart`,
+`periferico_lcd`) tiene su ficha en [`docs/diseño/modulos/`](../diseño/modulos/) con diagrama
+modular, entradas, salidas, funcionamiento y diagrama esquemático detallado. En este informe sus
+interfaces se resumen en la sección 5, los periféricos en las secciones 6 y 7, y las máquinas de
+estado en la sección 8.
 
 ### 4.2 Decisiones de diseño y su justificación
 
@@ -884,6 +905,105 @@ prueba ejercita el núcleo RX, el periférico, el árbitro y el receptor tal com
 cuatro letras correctas (`C`, `A`, `R`, `O`) llegan una tras otra y ninguna se pierde: la máscara
 queda completa y la cuenta de fallos no se mueve de 1.
 
+#### Formas de onda
+
+Las figuras siguientes salen de los mismos VCD que generan los testbenches autoverificables. Se
+exportaron a SVG con [vecdump](https://codeberg.org/mcit39/vecdump) mediante `make dump`, que recorta
+el VCD a la ventana de interés con `src/sim/recortar_vcd.py`. Por ejemplo:
+
+```sh
+make dump TB=receptor_uart SIGS=clk_tb,rx_data_rdy,o_addr_tb,o_letra_tb,o_valid_w_tb \
+          DESDE=82600000 HASTA=82720000 SVG=docs/informe/img/sim_receptor_bus.svg
+```
+
+Cómo leerlas:
+
+- El eje horizontal está en **ps** (el *timescale* de Icarus) y empieza en 0 al inicio de cada
+  ventana.
+- Los buses se muestran en binario.
+- Una zona gris indica actividad demasiado densa para la escala (por ejemplo, pulsos de un ciclo en
+  una ventana de decenas de µs). Para verla, se incluye una figura ampliada.
+
+**Sistema completo (`tb_top`), recepción y validación de una letra.** Esta es la misma prueba de
+integración de la sección 9: la palabra forzada es `CARRO` y la letra `Z` (`0x5A`) llega bit a bit
+por `rx_i` a 115 200 baudios. La trama muestra el bit de arranque, los 8 bits LSB primero
+(`0,1,0,1,1,0,1,0`) y el bit de parada. Al final de la trama `letra_in` toma el valor `01011010`.
+
+![tb_top: trama serial de la letra Z hasta su validación](img/sim_top_letra_trama.svg)
+
+Ampliación del final de la trama anterior. El receptor lee el dato por el árbitro (`rx_bus_addr = 01`)
+y limpia `new_rx` escribiendo el control (`rx_bus_we`, `rx_bus_addr = 10`). En ese mismo ciclo
+publica `letra_in = 'Z'` con `letra_nueva`. Como `Z` no está en `CARRO`, el comparador genera `try`,
+`intentos` pasa de 0 a 1 y `letra_lista` sale con `letra_state = 00` (fallo). La máscara
+`111111100000` no cambia: los 7 bits altos son el relleno por encima de la longitud 5.
+
+![tb_top: validación de la letra Z como fallo](img/sim_top_letra_fallo.svg)
+
+Última letra de la partida. La `O` (`01001111`) revela la posición que faltaba, la máscara queda en
+`111111111111` y `palabra_completa` sube. Un ciclo después la FSM pasa de `JUEGO` (`010`) a `GANO`
+(`011`), y dos ciclos después `num_ganadas` sube a 1. `intentos` se queda en 1.
+
+![tb_top: la O completa CARRO y la FSM entra a GANO](img/sim_top_gano.svg)
+
+**Receptor UART (M10).** Trama de la letra `A` (`0x41`) sobre la línea serial. Los pulsos de
+`rx_data_rdy`, `new_rx` y `o_valid_w` duran un ciclo y aparecen en gris a esta escala.
+
+![tb_receptor_uart: trama de la letra A](img/sim_receptor_trama.svg)
+
+La siguiente ampliación muestra el sondeo del bus. El núcleo pulsa `rx_data_rdy` y el periférico
+levanta `new_rx`. `estado` pasa de `ESPERA` (`00`) a `LEE` (`01`), donde se lee el dato
+(`o_addr = 01`), y luego a `LIMPIA` (`10`), donde se escribe el control para bajar `new_rx`. En ese
+mismo ciclo sale `o_letra = 01000001` con `o_valid_w`.
+
+![tb_receptor_uart: lectura del dato y limpieza de new_rx](img/sim_receptor_bus.svg)
+
+**Comparador de letra (M07).** Se carga `CASA` y se prueban, en orden, un acierto (`A`), un fallo
+con pulso de `o_try` (`Z`), dos repetidas (`o_letra_state = 10`, sin `o_try`) y los aciertos que
+completan la palabra. Después se recarga la palabra y se repite la secuencia. En cada caso
+`o_letra_state` sale junto con `o_letra_lista`, y `o_palabra_completa` sube cuando la máscara llega
+a `111111111111`.
+
+![tb_comparador_letra](img/sim_comparador.svg)
+
+**Transmisor UART (M11).** Al entrar a `JUEGO` se envía la trama de inicio (3 bytes, `cnt_byte`
+0–2). Después, un pulso de `i_letra_lista` dispara la trama de letra (5 bytes, `cnt_byte` 0–4). Por
+cada byte, la FSM interna recorre `LOAD_DATA` (`01`), donde escribe el dato en la dirección `00`,
+`LOAD_CTRL` (`10`), donde escribe `send` en la dirección `10`, y `WAIT` (`11`), donde espera a que el
+periférico baje `send`. El modelo del periférico del testbench está reescalado a 20 ciclos por byte.
+
+![tb_transmisor_uart: tramas de inicio y de letra](img/sim_transmisor_tramas.svg)
+
+**Periférico LCD.** Escritura del carácter `A` después de la inicialización (simulado con
+`CLK_FREQ_HZ = 1 MHz`). En `S_SET` (`001`) se fijan `RS = 1` y el dato `0x41`. `S_SETUP` (`010`)
+respeta el tiempo de *setup* antes de `S_EXEC` (`011`), donde sube `E`, y `S_WAIT` (`100`) espera el
+tiempo de ejecución. `RW` se mantiene en 0 todo el tiempo.
+
+![tb_periferico_lcd: pulso E para escribir la A](img/sim_lcd_pulso_e.svg)
+
+Vista completa de la misma operación. Después del pulso de `E` el periférico espera el tiempo de
+ejecución del dato (40 µs × 3 de margen, en la escala reducida). Al terminar sube `done` y baja
+`busy` por un ciclo antes de atender la siguiente operación pendiente.
+
+![tb_periferico_lcd: operación completa con busy y done](img/sim_lcd_escritura.svg)
+
+**Temporizador (M03).** Final de una cuenta en FÁCIL con el preescalador reescalado. Con cada
+`tick_1hz`, `tiempo` baja de `02` a `01` y a `00`. Al llegar a 0, `running` se apaga y
+`tiempo_agotado` sube. Luego el testbench pasa a `GANO` (`011`), y en el tercer `tick_1hz` dentro
+del resultado sube `fin_espera`.
+
+![tb_temporizador: fin de cuenta y espera de 3 s](img/sim_temporizador_fin.svg)
+
+**FSM principal (M13).** En `SELECCION` (`000`), `i_sel` conmuta `o_modo`. Con `i_ok` la FSM pasa a
+`CARGA` (`001`), con `i_valid_word` a `JUEGO` (`010`), con `i_palabra_completa` a `GANO` (`011`), y
+con `i_fin_espera` vuelve a `SELECCION`.
+
+![tb_fsm: partida ganada](img/sim_fsm_gano.svg)
+
+Las dos derrotas llevan al mismo estado `PERDIO` (`100`): primero por `i_intentos_agotados` y luego
+por `i_tiempo_agotado`. En ambos casos la FSM regresa a `SELECCION` con `i_fin_espera`.
+
+![tb_fsm: derrota por intentos y por tiempo](img/sim_fsm_perdio.svg)
+
 ### 10.4 Uso de recursos
 
 Síntesis con `yosys 0.68` (`synth_xilinx -flatten -abc9 -nobram -arch xc7`) sobre el `top` completo:
@@ -903,6 +1023,17 @@ nextpnr-xilinx reporta 2 075 celdas `SLICE_LUTX` después del empaquetado. La di
 942 LUT lógicos de yosys se debe a que nextpnr cuenta también los LUT de paso (*route-through*) que
 inserta para alimentar flip-flops y cadenas de acarreo, más los 167 inversores que yosys lista
 aparte. En cualquier caso el uso es bajo.
+
+**Esquemático del netlist sintetizado.** Como verificación cruzada, el `top` también se sintetizó en
+Vivado. La figura muestra el esquemático del netlist que genera la herramienta: las entradas están a
+la izquierda y los puertos de salida (LCD, 7 segmentos, UART, LED y buzzer) a la derecha. Cada bloque
+azul es una instancia del diseño (`u_fsm`, `u_lfsr`, `u_comparador_letra`, `u_mostrar_lcd`,
+`u_periferico_lcd`, `u_periferico_uart`, etc.). La jerarquía coincide con el diagrama de nivel 3
+(sección 4.1). `banco_palabras` y `arbitro_uart` no aparecen como bloques propios porque son
+puramente combinacionales y quedaron integrados en la lógica que los rodea. La figura es vectorial,
+así que al abrirla se puede ampliar para leer los nombres de las señales.
+
+![Esquemático del top sintetizado en Vivado](img/esquematico_top_vivado.svg)
 
 **Distribución aproximada por bloque:**
 

@@ -1,4 +1,6 @@
-module botones (
+module botones #(
+    parameter int N_DEBOUNCE = 21
+) (
     input logic clk,
     input logic rst,
     input logic btn_ok,
@@ -12,14 +14,14 @@ logic btn_ok_db;
 logic btn_sel_db;
 
 
-debounce #(.N(21)) debounce_ok (
+debounce #(.N(N_DEBOUNCE)) debounce_ok (
     .clk(clk),
     .rst(rst),
     .button_in(btn_ok),
     .button_out(btn_ok_db)
 );
 
-debounce #(.N(21)) debounce_sel (
+debounce #(.N(N_DEBOUNCE)) debounce_sel (
     .clk(clk),
     .rst(rst),
     .button_in(btn_sel),

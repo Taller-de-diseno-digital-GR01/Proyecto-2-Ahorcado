@@ -1,4 +1,9 @@
-module top (
+module top #(
+    // Ancho del contador de debounce (ventana de 2**(N-1) ciclos, 10,5 ms con 21). Solo se
+    // cambia para la simulacion post-implementacion temporizada, donde esperar 10,5 ms de
+    // debounce cuesta mas de una hora; la tarjeta se programa siempre con el valor por defecto
+    parameter int N_DEBOUNCE = 21
+) (
     input  logic       clk,
     input  logic       rst,
     input  logic       btn_sel,
@@ -26,7 +31,7 @@ module top (
     // M09_Botones: filtra y detecta flanco de BTN_SEL/BTN_OK, entrega pulsos limpios a la FSM
     logic sel_pulse, ok_pulse;
 
-    botones u_botones (
+    botones #(.N_DEBOUNCE(N_DEBOUNCE)) u_botones (
         .clk          (clk),
         .rst          (rst),
         .btn_ok       (btn_ok),

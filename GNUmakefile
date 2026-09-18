@@ -51,7 +51,8 @@ SYNTH_TOP ?= top
 
 VVP_OUT := $(BUILD_DIR)/tb_$(TB).vvp
 VCD_OUT := $(BUILD_DIR)/tb_$(TB).vcd
-SVG_OUT := $(BUILD_DIR)/tb_$(TB).svg
+SVG_OUT := $(or $(SVG),$(BUILD_DIR)/tb_$(TB).svg)
+RECORTE_OUT := $(BUILD_DIR)/tb_$(TB)_recorte.vcd
 
 NETLIST_OUT := $(BUILD_DIR)/$(SYNTH_TOP)_synth.v
 SYNTH_LOG   := $(BUILD_DIR)/$(SYNTH_TOP)_synth.log
@@ -82,6 +83,7 @@ help:
 	@echo "make sim  TB=<modulo>  compila y corre src/sim/tb_<modulo>.sv"
 	@echo "make wave TB=<modulo>  corre la simulación y abre GTKWave"
 	@echo "make dump TB=<modulo> SIGS=sig1,sig2,...  corre la simulación y exporta un SVG con vecdump"
+	@echo "                        DESDE=/HASTA= recortan la ventana (unidades del timescale), SVG= cambia la salida"
 	@echo "make test"
 	@echo "make test-app           corre las pruebas de la app de PC con unittest, no necesita la tarjeta"
 	@echo "make test-teclado       muestra el byte que sale por cada tecla, pide una terminal interactiva"
@@ -137,12 +139,23 @@ dump: sim
 ifeq ($(strip $(SIGS)),)
 	$(error Uso, make dump TB=<modulo> SIGS=sig1,sig2,...  ej. make dump TB=hit_counter SIGS=clk,rst,hit,acierto)
 endif
+ifneq ($(strip $(DESDE)$(HASTA)),)
+	$(PYTHON) $(SIM_DIR)/recortar_vcd.py $(VCD_OUT) $(RECORTE_OUT) $(or $(DESDE),0) $(or $(HASTA),999999999999999999)
+	$(VECDUMP) $(RECORTE_OUT) -s $(SIGS) -o $(SVG_OUT)
+else
 	$(VECDUMP) $(VCD_OUT) -s $(SIGS) -o $(SVG_OUT)
+endif
+	@awk 'NR==1{print; print "<rect width=\"100%\" height=\"100%\" fill=\"#fff\"/>"; next} 1' $(SVG_OUT) > $(SVG_OUT).tmp && mv $(SVG_OUT).tmp $(SVG_OUT)
 	@echo ".svg generado en $(SVG_OUT)"
 
 # Ej:
 # make dump TB=hit_counter SIGS=clk_tb,rst_tb,nueva_partida_tb,hit_tb,acierto_tb
 # Hay que conocer las señales que se quieren ver, eso es lo único malo.
+# vecdump dibuja la simulación entera; para ver solo un tramo se recorta el VCD con
+# DESDE/HASTA, en unidades del timescale del VCD (ps con Icarus), y SVG= cambia la salida:
+# make dump TB=receptor_uart SIGS=rx_linea,o_letra_tb DESDE=80000000 HASTA=190000000 SVG=docs/informe/img/rx.svg
+# vecdump deja el fondo transparente y en el modo oscuro de GitHub no se ven las líneas negras,
+# por eso el awk le mete un rectángulo blanco justo después de la etiqueta <svg>.
 
 $(NETLIST_OUT): $(DESIGN_SRCS) $(TOOLCHAIN_STAMP) | $(BUILD_DIR)
 	@$(YOSYS) -p " \

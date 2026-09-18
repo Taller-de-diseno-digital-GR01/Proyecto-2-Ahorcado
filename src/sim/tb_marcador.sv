@@ -21,7 +21,7 @@ module tb_marcador;
     ) dut (
         .clk         (clk),
         .rst         (rst),
-        .time        (time),
+        .time_t        (time_t),
         .num_ganadas (num_ganadas),
         .seg         (seg),
         .an          (an),
@@ -123,7 +123,7 @@ module tb_marcador;
         integer g_decenas;
         integer g_unidades;
         begin
-            time        = tiempo_prueba;
+            time_t        = tiempo_prueba;
             num_ganadas = ganadas_prueba;
 
             // Esperar a que los registros internos capturen los datos
@@ -166,7 +166,7 @@ module tb_marcador;
 
         clk         = 1'b0;
         rst         = 1'b1;
-        time        = 7'd0;
+        time_t      = 7'd0;
         num_ganadas = 7'd0;
         errores     = 0;
 
