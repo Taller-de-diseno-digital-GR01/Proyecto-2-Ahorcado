@@ -328,3 +328,31 @@ Conexiones en `src/design/top.sv`, instancia `u_transmisor_uart`:
 
 Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño
 que se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.
+
+---
+
+## Verificación
+
+`src/sim/tb_transmisor_uart.sv` es autoverificable, corre con `make sim TB=transmisor_uart` y
+reporta 28 pruebas sin fallos. No instancia `PERIFERICO_UART`, lo modela con un `send` que se
+sostiene 20 ciclos y se baja solo, que es el handshake que el módulo sondea. Cada trama se captura
+byte a byte del bus y se compara entera contra la esperada. Comprueba:
+
+- Después del reset el módulo no escribe nada, y en selección de modo tampoco.
+- La trama de inicio son tres bytes, la `I`, el modo y la longitud de la palabra.
+- La trama de letra son cinco bytes, la `L`, el resultado, los intentos acumulados, y la máscara
+  con el byte bajo primero.
+- Un fallo también manda trama, con los intentos ya actualizados, y una repetida también, que es lo
+  que evita que la PC se quede esperando respuesta.
+- La trama de fin son dos bytes, la `F` y la causa.
+- Las tres causas de fin. Con seis intentos la causa son los intentos, con cinco es el tiempo
+  aunque todavía quedara uno, y sin ningún fallo también sale tiempo.
+- Que la causa se congele al entrar a PERDIO y no cambie después.
+
+Los dos últimos casos son los de las banderas pendientes, que es la parte del módulo que más fácil
+se rompe. Uno manda una letra mientras la trama de inicio todavía está saliendo y verifica que el
+inicio salga entero y que la letra arranque después, sin perderse. El otro deja letra y fin
+pendientes en el mismo ciclo y verifica el orden, primero el fin porque a la PC le sirve más saber
+que la partida terminó, y la letra igual sale después en vez de descartarse.
+
+`make synth SYNTH_TOP=transmisor_uart` pasa sin `Latch inferred` en el log.

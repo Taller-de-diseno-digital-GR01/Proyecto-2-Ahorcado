@@ -20,6 +20,38 @@ II Semestre 2026
 - `src/fpga/` tiene los constraints de la Basys3 (XDC).
 - `sw/` tiene la app de PC en Python.
 
+## Cómo simular, compilar y cargar a la FPGA
+
+Todo el flujo está en el `GNUmakefile` y no usa Vivado en ningún paso. `make help` lista
+los targets; los principales son:
+
+```sh
+make list              # testbenches disponibles
+make sim TB=fsm        # simula src/sim/tb_fsm.sv con Icarus Verilog
+make test              # corre todos los testbenches
+make bitstream         # genera src/build/top.bit
+make connect           # revisa que la Basys3 esté visible por USB/JTAG
+make program           # carga el .bit a la tarjeta con openFPGALoader
+make all               # bitstream + program + app de PC
+```
+
+El bitstream se arma con el toolchain abierto [openXC7](https://github.com/openXC7):
+yosys sintetiza para `xc7` → `nextpnr-xilinx` hace place & route contra el chipdb del
+XC7A35T → `fasm2frames.py` y `xc7frames2bit` (de prjxray) arman el `.bit`.
+
+El makefile arma solo el `PATH` y el `PYTHONPATH` que esas herramientas necesitan, así
+que **no hay que correr `source .../export.sh` antes**. Da por hecho openXC7 en
+`/opt/openxc7` y el repo de prjxray clonado en `~/prjxray`; si están en otro lado:
+
+```sh
+make bitstream OPENXC7=/ruta/openxc7 PRJXRAY_PY=/ruta/prjxray
+```
+
+`make bitstream` revisa antes que estén las herramientas, el chipdb, la base de datos de
+prjxray y los módulos de python. Vale la pena que falle ahí: si `fasm2frames.py` se cae a
+medio camino, el `.bit` igual se genera, pero sale **en blanco** y la tarjeta lo acepta sin
+dar ningún error, solo no hace nada.
+
 ## Diseño modular
 
 Todo el diseño (los tres niveles de diagramas y el detalle de cada módulo) también está junto en

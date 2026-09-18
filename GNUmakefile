@@ -16,13 +16,27 @@ BOARD          := basys3
 PRIV := $(shell command -v doas >/dev/null 2>&1 && echo doas || echo sudo)
 
 # Toolchain openXC7 (yosys + nextpnr-xilinx + prjxray), sin Vivado.
-# Requiere /opt/openxc7/bin en el PATH -- correr antes: source /opt/openxc7/export.sh
+#
+# No hace falta correr 'source /opt/openxc7/export.sh' antes: el makefile arma solo
+# el PATH y el PYTHONPATH que necesitan nextpnr-xilinx y fasm2frames.py. Si el
+# toolchain está en otro lado se sobreescribe con, por ejemplo,
+#   make bitstream OPENXC7=/ruta/openxc7 PRJXRAY_PY=/ruta/prjxray
+OPENXC7    ?= /opt/openxc7
+# Repo clonado de prjxray, de ahí sale el módulo de python 'prjxray' que importa
+# fasm2frames.py (el paquete 'fasm' sí viene dentro de openXC7)
+PRJXRAY_PY ?= $(HOME)/prjxray
+
+export PATH       := $(OPENXC7)/bin:$(PATH)
+export PYTHONPATH := $(OPENXC7)/lib/python:$(PRJXRAY_PY)$(if $(PYTHONPATH),:$(PYTHONPATH))
+export NEXTPNR_XILINX_PYTHON_DIR := $(OPENXC7)/lib/python
+export PRJXRAY_DB_DIR            := $(OPENXC7)/share/nextpnr/prjxray-db
+
 NEXTPNR_XILINX  := nextpnr-xilinx
-FASM2FRAMES     := python3 /opt/openxc7/bin/fasm2frames.py
+FASM2FRAMES      = $(PYTHON) $(OPENXC7)/bin/fasm2frames.py
 XC7FRAMES2BIT   := xc7frames2bit
 PART            := xc7a35tcpg236-1
-PRJXRAY_DB_ROOT := /opt/openxc7/share/nextpnr/prjxray-db/artix7
-CHIPDB          := /opt/openxc7/share/nextpnr-xilinx/chipdb/xc7a35tcpg236.bin
+PRJXRAY_DB_ROOT := $(PRJXRAY_DB_DIR)/artix7
+CHIPDB          := $(OPENXC7)/share/nextpnr-xilinx/chipdb/xc7a35tcpg236.bin
 XDC             := src/fpga/basys3.xdc
 
 APP_DIR    := sw
@@ -53,7 +67,12 @@ BIT        ?= $(BIT_OUT)
 # el build si src/build/ quedó con binarios de otra máquina
 TOOLCHAIN_STAMP := $(BUILD_DIR)/.toolchain
 
-.PHONY: all help list sim wave dump test test-app test-teclado synth bitstream program connect app clean check-tb check-fpga-toolchain
+.PHONY: all help list sim wave dump test test-app test-teclado synth bitstream program connect app clean check-tb check-fpga-toolchain FORCE
+
+# Si una receta falla, borra el archivo que estaba generando. Sin esto un paso que
+# escribe con redirección (ej. fasm2frames > top.frames) deja un archivo vacío que
+# make da por hecho la próxima vez, y el .bit sale en blanco sin avisar.
+.DELETE_ON_ERROR:
 
 all: bitstream program app
 
@@ -68,8 +87,10 @@ help:
 	@echo "make test-teclado       muestra el byte que sale por cada tecla, pide una terminal interactiva"
 	@echo "make synth SYNTH_TOP=<modulo>  sintetiza con yosys (genérico) y revisa que no haya latches inferidos"
 	@echo "make bitstream          genera $(BIT_OUT) con yosys + nextpnr-xilinx + prjxray (openXC7, sin Vivado)"
-	@echo "                        requiere /opt/openxc7/bin en el PATH (source /opt/openxc7/export.sh)"
-	@echo "make program BIT=<archivo.bit>  carga un .bit al Basys3 con openFPGALoader"
+	@echo "                        toma el toolchain de OPENXC7=$(OPENXC7) y PRJXRAY_PY=$(PRJXRAY_PY), no hace falta"
+	@echo "                        correr 'source .../export.sh' antes"
+	@echo "make program            reconstruye el bitstream si hace falta y lo carga al Basys3 con openFPGALoader"
+	@echo "make program BIT=<archivo.bit>  carga ese .bit tal cual, sin reconstruir nada"
 	@echo "make connect             verifica que la Basys3 esté detectable por USB/JTAG antes de programar"
 	@echo "make app                 corre la app de PC (terminal remota del ahorcado por UART)"
 	@echo "make clean"
@@ -90,9 +111,16 @@ endif
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(TOOLCHAIN_STAMP): | $(BUILD_DIR)
-	@{ echo "$$($(IVERILOG) -V | head -1)|$$(command -v $(IVERILOG))"; \
-	   echo "$$($(YOSYS) -V)|$$(command -v $(YOSYS))"; \
+# Prerrequisito vacío que nunca existe como archivo, obliga a rehacer lo que lo tenga.
+# Va acá y no antes de 'all' para no robarle el lugar de target por defecto.
+FORCE:
+
+# FORCE hace que la receta corra en cada make: sin eso el stamp solo se escribía la
+# primera vez (make lo veía siempre al día por existir) y nunca invalidaba nada. El cmp
+# de abajo es el que decide, solo le mueve la fecha si el toolchain cambió de verdad.
+$(TOOLCHAIN_STAMP): FORCE | $(BUILD_DIR)
+	@{ echo "$$($(IVERILOG) -V 2>/dev/null | head -1)|$$(command -v $(IVERILOG))"; \
+	   echo "$$($(YOSYS) -V 2>/dev/null)|$$(command -v $(YOSYS))"; \
 	   echo "$$(command -v $(NEXTPNR_XILINX))"; } > $@.tmp
 	@cmp -s $@.tmp $@ 2>/dev/null && rm -f $@.tmp || mv $@.tmp $@
 
@@ -145,16 +173,26 @@ $(NETLIST_OUT): $(DESIGN_SRCS) $(TOOLCHAIN_STAMP) | $(BUILD_DIR)
 synth: $(NETLIST_OUT)
 	@echo "Netlist generado en $(NETLIST_OUT)"
 
-# Falla temprano y con un mensaje claro si falta el toolchain openXC7 en el PATH
+# Falla temprano y con un mensaje claro si falta algo del toolchain openXC7. Se revisa
+# todo acá y no a medio camino, porque un paso que falla tarde (típicamente fasm2frames
+# por el PYTHONPATH) deja un .bit en blanco que la tarjeta acepta sin quejarse.
 check-fpga-toolchain:
 	@command -v $(YOSYS) >/dev/null 2>&1 || \
-		{ echo "ERROR: '$(YOSYS)' no encontrado en PATH. Correr: source /opt/openxc7/export.sh"; exit 1; }
+		{ echo "ERROR: '$(YOSYS)' no encontrado. Revisar que OPENXC7=$(OPENXC7) sea la ruta correcta."; exit 1; }
 	@command -v $(NEXTPNR_XILINX) >/dev/null 2>&1 || \
-		{ echo "ERROR: '$(NEXTPNR_XILINX)' no encontrado en PATH. Correr: source /opt/openxc7/export.sh"; exit 1; }
+		{ echo "ERROR: '$(NEXTPNR_XILINX)' no encontrado. Revisar que OPENXC7=$(OPENXC7) sea la ruta correcta."; exit 1; }
 	@command -v $(XC7FRAMES2BIT) >/dev/null 2>&1 || \
-		{ echo "ERROR: '$(XC7FRAMES2BIT)' no encontrado en PATH. Correr: source /opt/openxc7/export.sh"; exit 1; }
+		{ echo "ERROR: '$(XC7FRAMES2BIT)' no encontrado. Revisar que OPENXC7=$(OPENXC7) sea la ruta correcta."; exit 1; }
 	@[ -f $(CHIPDB) ] || \
 		{ echo "ERROR: chipdb no encontrado en $(CHIPDB) (ver docs de generación en /home/mc/Documents/CLAUDE.md)"; exit 1; }
+	@[ -d $(PRJXRAY_DB_ROOT)/$(PART) ] || \
+		{ echo "ERROR: base de datos de prjxray no encontrada en $(PRJXRAY_DB_ROOT)/$(PART)"; exit 1; }
+	@$(PYTHON) -c "import fasm, prjxray" 2>/dev/null || \
+		{ echo "ERROR: fasm2frames.py no puede importar sus módulos de python."; \
+		  echo "       PYTHONPATH actual: $$PYTHONPATH"; \
+		  echo "       'fasm' sale de $(OPENXC7)/lib/python y 'prjxray' del repo clonado en PRJXRAY_PY=$(PRJXRAY_PY)."; \
+		  echo "       Si prjxray está en otro lado: make bitstream PRJXRAY_PY=/ruta/prjxray"; \
+		  exit 1; }
 
 # Bitstream para el Basys3 (XC7A35T, part $(PART)) con el toolchain openXC7 (yosys ->
 # nextpnr-xilinx -> fasm2frames -> xc7frames2bit), sin Vivado. Ver src/fpga/basys3.xdc.
@@ -171,6 +209,9 @@ $(ROUTED_OUT) $(FASM_OUT) &: $(JSON_OUT) $(XDC) $(CHIPDB)
 
 $(FRAMES_OUT): $(FASM_OUT)
 	$(FASM2FRAMES) --part $(PART) --db-root $(PRJXRAY_DB_ROOT) $(FASM_OUT) > $(FRAMES_OUT)
+	@[ -s $(FRAMES_OUT) ] || \
+		{ echo "ERROR: $(FRAMES_OUT) salió vacío, el .bit que saldría de ahí no configura nada."; \
+		  rm -f $(FRAMES_OUT); exit 1; }
 
 $(BIT_OUT): $(FRAMES_OUT)
 	$(XC7FRAMES2BIT) --part_file $(PRJXRAY_DB_ROOT)/$(PART)/part.yaml --part_name $(PART) \
@@ -210,18 +251,46 @@ connect: | $(BUILD_DIR)
 			if command -v lsusb >/dev/null 2>&1 && ! lsusb 2>/dev/null | grep -qi "FTDI\|Future Technology"; then \
 				echo "ERROR: no se detecta el chip FTDI (Basys3) en lsusb."; \
 				exit 1; \
-			fi ;; \
+			fi; \
+			for iface in /sys/bus/usb/devices/*:1.0; do \
+				dev=$${iface%%:*}; \
+				[ "$$(cat $$dev/idVendor 2>/dev/null)$$(cat $$dev/idProduct 2>/dev/null)" = "04036010" ] || continue; \
+				[ "$$(basename $$(readlink -f $$iface/driver 2>/dev/null) 2>/dev/null)" = usbfs ] || continue; \
+				echo "AVISO: la interfaz JTAG del FT2232 ya está tomada por otro proceso (driver usbfs)."; \
+				if command -v lsof >/dev/null 2>&1; then \
+					lsof /dev/bus/usb/$$(printf %03d $$(cat $$dev/busnum))/$$(printf %03d $$(cat $$dev/devnum)) \
+						2>/dev/null | tail -n +2 | awk '{print "       lo tiene " $$1 " (PID " $$2 ")"}'; \
+				fi; \
+				echo "       Casi siempre es el hw_server de Vivado: cerrá el Hardware Manager, o corré"; \
+				echo "         pkill hw_server"; \
+				echo "       y reintentá. La interfaz de UART (/dev/ttyUSB*) no estorba, esa es otra."; \
+			done ;; \
 	esac
 	@if ! $(PRIV) $(OPENFPGALOADER) --detect > $(BUILD_DIR)/.connect.log 2>&1; then \
 		echo "ERROR: openFPGALoader no logra hablar JTAG con la tarjeta:"; \
 		cat $(BUILD_DIR)/.connect.log; \
 		echo ""; \
-		echo "Si el chip sí aparece en el bus pero esto falla, es casi seguro el conflicto de uftdi de arriba."; \
+		echo "Si el chip sí aparece en el bus pero esto falla, es porque alguien más tiene tomada la"; \
+		echo "interfaz JTAG: en Linux casi siempre el hw_server de Vivado, en FreeBSD el driver uftdi."; \
+		echo "Mirá el AVISO de arriba, ahí va el proceso concreto cuando se puede averiguar."; \
 		exit 1; \
 	fi
 	@echo "OK: openFPGALoader detecta la FPGA por JTAG. Todo listo para 'make program' / 'make all'."
 
-program: connect
+# Si no se pidió un .bit específico con BIT=, se reconstruye $(BIT_OUT) antes de cargarlo,
+# para no terminar programando un bitstream viejo de una versión anterior del RTL.
+#
+# Los dos prerequisitos van en una sola regla y en este orden a propósito: primero compilar
+# (un error de síntesis se ve sin necesidad de tener la tarjeta conectada) y de último el
+# chequeo de JTAG, que así queda justo antes de programar. Partirlo en dos reglas no sirve,
+# make corre primero los prerequisitos de la regla que trae la receta, sin importar el orden
+# en que estén escritas.
+PROGRAM_DEPS := connect
+ifeq ($(BIT),$(BIT_OUT))
+PROGRAM_DEPS := bitstream connect
+endif
+
+program: $(PROGRAM_DEPS)
 	$(PRIV) $(OPENFPGALOADER) -b $(BOARD) $(BIT)
 
 # Terminal interactiva, busca la tarjeta sola si no se pasa PUERTO
