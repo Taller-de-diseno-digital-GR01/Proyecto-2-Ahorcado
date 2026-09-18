@@ -289,3 +289,33 @@ El punto j) del método de diseño modular pide un diagrama de conexiones eléct
 aplica a un montaje con circuitos integrados discretos. En un diseño que se sintetiza completo
 dentro de la Artix-7 la traducción razonable es esta lista de puertos del instanciado, y queda
 pendiente confirmárselo al profesor.
+
+---
+
+## Verificación
+
+`src/sim/tb_comparador_letra.sv` es autoverificable, corre con `make sim TB=comparador_letra` y
+reporta 34 pruebas sin fallos. La palabra se fuerza desde el testbench en vez de instanciar
+`M08_LFSR`, así cada caso escoge la que le sirve. Comprueba:
+
+- Después del reset la máscara queda en ceros, las salidas de letra quietas y `o_palabra_completa`
+  en 0.
+- Al pasar por CARGA la máscara arranca con el relleno en unos y las posiciones válidas en cero.
+- La A de CASA acierta y revela sus dos posiciones de un solo golpe, que es el requisito de revelar
+  todas las ocurrencias a la vez.
+- La Z no está, se evalúa como fallo y pulsa `o_try` sin mover la máscara.
+- `o_letra_lista` y `o_try` duran un solo ciclo cada uno.
+- Una letra repetida sí levanta `o_letra_lista` pero no gasta intento ni toca la máscara, y una que
+  ya había fallado antes también cuenta como repetida.
+- La palabra se cierra letra por letra y `o_palabra_completa` sube en el mismo ciclo en que la
+  última posición se revela.
+- Los tres largos de borde, CASA con relleno desde la posición 4, PERRO donde la A no aparece y no
+  se confunde con el relleno, y una palabra de 12 letras que no deja relleno.
+- Que la partida siguiente vuelva a dejar solo el relleno y limpie `REG_USADAS`, con la A otra vez
+  como acierto.
+
+Las dos últimas pruebas son las carreras de prioridad del registro, `rst` contra una letra que
+llega en el mismo ciclo, y CARGA contra una letra en el mismo ciclo. Las dos tienen que ganarle a
+la letra, si no la máscara y la evaluación quedan diciendo cosas distintas.
+
+`make synth SYNTH_TOP=comparador_letra` pasa sin `Latch inferred` en el log.
