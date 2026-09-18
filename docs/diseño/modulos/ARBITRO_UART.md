@@ -213,3 +213,28 @@ Conexiones en `src/design/top.sv`, instancia `u_arbitro_uart`:
 
 Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño
 que se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.
+
+---
+
+## Verificación
+
+`src/sim/tb_arbitro_uart.sv` es autoverificable, corre con `make sim TB=arbitro_uart` y reporta 16
+pruebas sin fallos. El módulo es combinacional puro, así que el testbench no tiene reloj, pone las
+dos caras de entrada y compara de una vez lo que sale hacia el periférico y lo que ve cada maestro
+de vuelta. Comprueba:
+
+- Con los dos maestros en reposo el bus queda apuntando al control, los dos leen el control de
+  verdad, y el transmisor tiene `o_tx_bus_libre` en alto.
+- Cuando el receptor lee el registro de datos el bus es suyo, al transmisor se le corta, y lo que
+  le llega son ceros y no el registro ajeno.
+- Con el receptor en reposo el transmisor escribe su dato, y al receptor le llegan ceros para que
+  no confunda un byte de la trama saliente con un `new_rx` levantado.
+- Si los dos piden a la vez gana el receptor y el transmisor se queda esperando.
+
+Las cuatro últimas son las de la recomposición de la escritura al control, que es el trabajo que
+de verdad motivó el módulo. Limpiar `new_rx` conserva el `send` que estaba alto, y si estaba bajo
+sigue bajo. Levantar `send` conserva el `new_rx` que estaba esperando, y sin byte esperando se
+queda en cero. La última pone a los dos escribiendo el control en el mismo ciclo y verifica que
+pase la del receptor y que el transmisor sepa que no pasó, para que reintente.
+
+`make synth SYNTH_TOP=arbitro_uart` pasa sin `Latch inferred` en el log.
