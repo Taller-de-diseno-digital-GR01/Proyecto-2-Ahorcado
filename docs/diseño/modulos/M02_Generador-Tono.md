@@ -1,247 +1,58 @@
-# M02 - Generador-Tono
+# M02 - Generador de tono
 
-## a) Nombre del módulo
-
-M02_Generador-Tono
+Archivo RTL de referencia: `src/design/generador_tono.sv`.
 
 ## b) Diagrama modular
 
 ```mermaid
 flowchart LR
-    IN_STATE(["state (de M13_FSM)"]) -->|i_state| DEC_ST["DECOD_ESTADO<br/>detecta fin de partida"]
-    DEC_ST -->|pulso_fin| REG_EN["REG_ENABLE<br/>registro"]
-    IN_LST(["letra_state (de M07)"]) -->|i_letra_state| MUX1{{"MUX 3:1<br/>tono acierto/fallo/fin"}}
-    IN_LL(["letra_lista (de M07)"]) -->|i_letra_lista| REG_EN
-    IN_LL -->|i_letra_lista| MUX1
-    DEC_ST -->|pulso_fin| MUX1
-    MUX1 -->|next_n| REG_N["REG_N<br/>registro (valor N)"]
-    REG_EN -->|reg_enable| CNT_DIV["CONT_DIVISOR<br/>contador (prescaler)"]
-    REG_N -->|reg_n| CMP1{"CMP = N<br/>comparador"}
-    CNT_DIV -->|cont_divisor| CMP1
-    CMP1 -->|"cont_divisor = reg_n (toggle)"| REG_SQ["REG_ONDA<br/>flip-flop T"]
-    REG_SQ -->|o_sound| OUT_SND(["sound (a BUZZER)"])
-    CNT_DUR["CONT_DURACION<br/>contador"] -->|"cont_duracion = DUR_CYCLES (fin)"| REG_EN
-    REG_EN -->|reg_enable| CNT_DUR
+        ST["i_state"] --> FIN["Detector entrada a fin"]
+        LS["i_letra_state + i_letra_lista"] --> TRIG["Selector de evento"]
+        FIN --> TRIG
+        TRIG --> N["REG_N"]
+        N --> DIV["Contador divisor"]
+        TRIG --> DUR["Contador 150 ms"]
+        DIV --> SQ["FF onda"]
+        DUR --> EN["REG_ENABLE"]
+        SQ --> AND["AND"]
+        EN --> AND
+        AND --> OUT["o_sound"]
 ```
 
 ## c) Objetivo del módulo
 
-Generar el tono del buzzer. Se dispara solo, con `letra_state` de M07_Comparador-letra para
-distinguir acierto de fallo, y decodificando `state` para el tono de fin de partida cuando el
-sistema entra a GANO, PERDIO_INTENTOS o PERDIO_TIEMPO. Son los tres sonidos distintos que pide el
-enunciado.
+Generar realimentación sonora distinta para acierto, fallo y fin de partida usando una onda
+    cuadrada sobre el buzzer.
 
 ## d) Entradas
 
 - `clk`, `rst`.
-- `state[2:0]`: estado actual, desde M13_FSM, de ahí saca la entrada a un estado de fin de
-  partida.
-- `letra_state[1:0]`: resultado de la última letra evaluada, desde M07_Comparador-letra, con la
-  codificación confirmada en `M07_Comparador-letra.md`, sección "Codificación de `letra_state`":
-  `00` fallo, `01` acierto, `10` repetida, `11` sin uso.
-- `letra_lista`: estrobo de un ciclo que acompaña a `letra_state`, desde M07_Comparador-letra,
-  indica que `letra_state` es válido en ese ciclo, en reposo el estrobo está en `0` y
-  `letra_state` no se debe interpretar.
+    - `i_state[2:0]`: estado global.
+    - `i_letra_state[1:0]`: fallo/acierto/repetida.
+    - `i_letra_lista`: pulso que indica resultado de letra válido.
 
 ## e) Salidas
 
-- `sound`: onda cuadrada de audio, hacia BUZZER.
+- `o_sound`: onda cuadrada hacia el buzzer.
 
 ## f) Explicación de la relación con otros módulos
 
-M02 no recibe órdenes puntuales de nadie ni le devuelve nada a ningún módulo M0X; es, junto con
-M05_Estado, uno de los módulos más aislados del diseño, salida directa hacia BUZZER sin pasar por
-CONTROL_JUEGO ni por ningún bus.
+Recibe el resultado de M07 y el estado de M13. Una letra repetida no dispara sonido. La
+    entrada a un estado final genera el tono de fin.
 
-De `state` (M13_FSM) solo le importan tres de los seis códigos, GANO, PERDIO_INTENTOS y
-PERDIO_TIEMPO; el resto (SELECCION, CARGA, JUEGO) es indistinguible para este módulo y no dispara
-nada por sí solo. De `letra_state` (M07_Comparador-letra) solo le importan dos de los cuatro
-códigos posibles, acierto y fallo; letra repetida no genera sonido, consistente con que el
-enunciado dice que una letra repetida "se ignora sin penalizar", y M02 extiende ese silencio
-también al buzzer.
+## g) Explicación de funcionamiento
 
-M02 no sabe si el fin de partida fue victoria o alguna de las dos derrotas, decodifica los tres
-estados de fin como un solo evento y usa el mismo tono para los tres. Esto es intencional: el
-enunciado pide "tono distinto para acierto, error, y fin de partida", tres tonos, no cinco, así
-que no hay necesidad de que M02 distinga la causa del fin de partida como sí lo hacen M04 y M11.
-
-## g) Funcionamiento
-
-El módulo vigila dos eventos en paralelo: la entrada a un estado de fin de partida (decodificado
-de `state`) y un pulso de `letra_state` en acierto o fallo. Cualquiera de los dos, al ocurrir,
-dispara un tono nuevo, con la entrada a fin de partida teniendo prioridad sobre un acierto o
-fallo que llegara en el mismo ciclo (esto puede pasar de verdad: la última letra que completa la
-palabra genera `letra_state = acierto` en M07 en el mismo ciclo en que `palabra_completa` mueve a
-la FSM a GANO, así que hace falta una regla de prioridad y se eligió que suene el tono de fin, no
-el de acierto, para que el jugador no pierda esa señal).
-
-Al dispararse un tono, el módulo carga en `REG_N` el divisor de frecuencia que le corresponde
-(uno distinto por cada uno de los tres tonos), reinicia el contador de duración desde cero, y
-arranca `REG_ENABLE`. Mientras `REG_ENABLE` esté activo, un contador (`CONT_DIVISOR`) cuenta
-ciclos de reloj y cada vez que alcanza el valor cargado en `REG_N` conmuta un flip-flop tipo T
-(`REG_ONDA`), lo que genera una onda cuadrada de la frecuencia deseada, la misma técnica de
-divisor de frecuencia que usa M03_Temporizador para bajar de 100 MHz a 1 Hz, aplicada aquí para
-bajar de 100 MHz a un tono audible. Un segundo contador (`CONT_DURACION`) cuenta en paralelo
-mientras `REG_ENABLE` está activo; cuando llega a la duración fija del tono, apaga
-`REG_ENABLE` y el módulo vuelve a silencio hasta el próximo disparo.
-
-La salida `sound` no es directamente `REG_ONDA`: se combina con `REG_ENABLE` (`sound = REG_ONDA
-AND REG_ENABLE`) para que el buzzer quede en `0` entre tonos, en vez de quedarse
-"congelado" en `1` si el último toggle antes de apagarse dejó la onda en alto. Un piezoeléctrico
-pasivo con una tensión de continua sostenida no suena nada pero sí puede degradarse con el tiempo,
-así que forzar el silencio a `0` es la opción más segura y no cuesta hardware adicional, un único
-AND de dos entradas.
+Los valores por defecto son 1000 Hz para acierto, 250 Hz para fallo y 500 Hz para fin, todos
+    durante 150 ms. Cada nuevo disparo reinicia la duración y el divisor, por lo que un evento
+    reciente puede interrumpir el tono anterior.
 
 ## h) Diseño
 
-### Detector de entrada a fin de partida
+El RTL todavía reconoce `3'b101` como un segundo código histórico de derrota. La FSM actual
+    no genera ese estado; `3'b100` sí está incluido y por eso el tono de derrota actual funciona.
+    Esta compatibilidad heredada se registra también en la documentación general.
 
-`DECOD_ESTADO` es puramente combinacional:
+## i) Diagrama esquemático detallado
 
-```
-dec_fin = (state == GANO) | (state == PERDIO_INTENTOS) | (state == PERDIO_TIEMPO)
-```
-
-Como `dec_fin` es un nivel que se mantiene mientras dure el estado de fin (hasta 3 s, ver
-M03_Temporizador), hace falta un detector de flanco para no quedarse re-disparando el tono cada
-ciclo. Se registra `dec_fin` un ciclo (`dec_fin_prev`) y se genera un pulso de un ciclo:
-
-| `dec_fin` (actual) | `dec_fin_prev` | `pulso_fin` |
-|---|---|---|
-| 0 | 0 | 0 |
-| 0 | 1 | 0 |
-| 1 | 0 | 1 |
-| 1 | 1 | 0 |
-
-`pulso_fin = dec_fin AND (NOT dec_fin_prev)`, la misma estructura de detector de flanco de subida
-que usa M09_Botones sobre el valor ya estable de cada botón.
-
-### Selección de disparo y de frecuencia (MUX 3:1)
-
-Señal de disparo combinacional, calificando `letra_state` con `letra_lista` ya que sin ese
-estrobo el valor de `letra_state` no dice nada sobre si hay una letra nueva evaluada en este
-ciclo:
-
-```
-trig = pulso_fin OR (letra_lista AND letra_state == 2'b01) OR (letra_lista AND letra_state == 2'b00)
-```
-
-El `MUX 3:1` decide, con prioridad fin > acierto > fallo, qué valor de `N` se carga en `REG_N`
-cuando `trig = 1`:
-
-| `pulso_fin` | `letra_lista` | `letra_state` | Tono seleccionado | `N` cargado en `REG_N` |
-|---|---|---|---|---|
-| 1 | X | XX | FIN | `N_FIN` |
-| 0 | 1 | 01 | ACIERTO | `N_ACIERTO` |
-| 0 | 1 | 00 | FALLO | `N_FALLO` |
-| 0 | 1 | 10 | (sin disparo, repetida) | `REG_N` conserva su valor |
-| 0 | 0 | XX | (sin disparo) | `REG_N` conserva su valor |
-
-### REG_ENABLE y CONT_DURACION
-
-`CONT_DURACION` es un contador que corre solo mientras `REG_ENABLE = 1`, y comparte una única
-duración fija (`DUR_CYCLES`) para los tres tonos, ya que el diagrama modular solo contempla un
-contador de duración y no un segundo mux para seleccionarla; distinguir los tonos únicamente por
-frecuencia es suficiente para el propósito de este módulo y evita duplicar hardware de selección.
-
-| `trig` | `REG_ENABLE` actual | `CONT_DURACION = DUR_CYCLES-1`? | `REG_ENABLE` siguiente | `CONT_DURACION` siguiente |
-|---|---|---|---|---|
-| 1 | X | X | 1 | 0 (reinicia, un disparo nuevo interrumpe al que estuviera sonando) |
-| 0 | 0 | X | 0 | 0 |
-| 0 | 1 | 0 | 1 | `CONT_DURACION + 1` |
-| 0 | 1 | 1 | 0 | 0 |
-
-### CONT_DIVISOR y REG_ONDA (generación de la onda cuadrada)
-
-`CONT_DIVISOR` solo cuenta mientras `REG_ENABLE = 1`; en reposo, o justo al dispararse un `trig`
-nuevo, se fuerza a 0 junto con `REG_ONDA`, para que cada tono arranque siempre desde silencio con
-un flanco limpio en vez de heredar la fase del tono anterior:
-
-| `trig` | `REG_ENABLE` | `CONT_DIVISOR = REG_N`? | `CONT_DIVISOR` siguiente | `REG_ONDA` siguiente |
-|---|---|---|---|---|
-| 1 | X | X | 0 | 0 |
-| 0 | 0 | X | 0 | 0 (mantiene silencio) |
-| 0 | 1 | 0 | `CONT_DIVISOR + 1` | `REG_ONDA` (sin cambio) |
-| 0 | 1 | 1 | 0 | `NOT REG_ONDA` (toggle) |
-
-Con esto la frecuencia de salida es `f = f_clk / (2 · (N + 1))`, la misma relación que usa
-M03_Temporizador para su `tick_1Hz`, solo que acá el "período" de interés es audible en vez de
-segundos.
-
-### Valores de frecuencia y duración propuestos
-
-Se exponen como `parameter` con valores de producción por defecto (no `localparam`), siguiendo el
-principio ya usado en otros módulos del proyecto de dejar las constantes de tiempo overrideables
-desde el testbench para simulación práctica en EDA Playground:
-
-| Parámetro | Valor por defecto | Frecuencia resultante | `N` (18 bits) |
-|---|---|---|---|
-| `F_ACIERTO_HZ` | 1000 Hz | agudo, "positivo" | `N_ACIERTO = 49 999` |
-| `F_FALLO_HZ` | 250 Hz | grave, "negativo" | `N_FALLO = 199 999` |
-| `F_FIN_HZ` | 500 Hz | intermedio, distinguible de los otros dos | `N_FIN = 99 999` |
-| `DUR_MS` | 150 ms | duración común a los tres tonos | `DUR_CYCLES = 14 999 999` (24 bits) |
-
-`CONT_DIVISOR` necesita 18 bits para alcanzar 199 999 (el `N` más grande, el del tono más grave).
-`CONT_DURACION` necesita 24 bits para alcanzar 14 999 999. Ambos anchos van con `$clog2` sobre los
-parámetros, no fijos a mano, para que si el equipo ajusta las frecuencias o la duración el ancho
-de los contadores se recalcule solo.
-
-## i) Diagrama esquemático detallado (por compuertas lógicas)
-
-```mermaid
-flowchart LR
-    STATEIN(["state"]) --> DECFIN["comparador<br/>dec_fin = OR de 3 igualdades"]
-    DECFIN --> DPREV["D-FF<br/>dec_fin_prev"]
-    CLK1(["clk"]) --> DPREV
-    DECFIN --> ANDF["AND<br/>(dec_fin_prev invertido)"]
-    DPREV --> ANDF
-    ANDF --> PFIN["pulso_fin"]
-
-    LST(["letra_state[1:0]"]) --> CMPA{"CMP = 01<br/>acierto"}
-    LST --> CMPB{"CMP = 00<br/>fallo"}
-    LLIST(["letra_lista"]) --> ANDA["AND<br/>acierto calificado"]
-    CMPA --> ANDA
-    LLIST --> ANDB["AND<br/>fallo calificado"]
-    CMPB --> ANDB
-    PFIN --> ORT["OR3<br/>trig"]
-    ANDA --> ORT
-    ANDB --> ORT
-    ORT --> TRIG["trig"]
-
-    PFIN --> MUXN{{"MUX 3:1<br/>N_FIN/N_ACIERTO/N_FALLO"}}
-    ANDA --> MUXN
-    ANDB --> MUXN
-    MUXN --> DN["D-FF (bus)<br/>REG_N"]
-    TRIG --> DN
-    CLK1 --> DN
-
-    TRIG --> ORE["OR<br/>REG_ENABLE next"]
-    DUREND["CONT_DURACION = fin?"] --> ORE
-    ORE --> DE["D-FF<br/>REG_ENABLE"]
-    CLK1 --> DE
-    DE --> CTEN_DUR["enable"]
-    CTEN_DUR --> CNTDUR["CONT_DURACION<br/>contador"]
-    CLK1 --> CNTDUR
-    TRIG -->|clear| CNTDUR
-    CNTDUR --> DUREND
-
-    DE --> CTEN_DIV["enable"]
-    CTEN_DIV --> CNTDIV["CONT_DIVISOR<br/>contador"]
-    CLK1 --> CNTDIV
-    TRIG -->|clear| CNTDIV
-    CNTDIV --> CMPN{"CMP = REG_N"}
-    DN --> CMPN
-    CNTDIV -->|clear en match| CNTDIV
-    CMPN -->|toggle| DONDA["D-FF T<br/>REG_ONDA"]
-    CLK1 --> DONDA
-    TRIG -->|clear| DONDA
-
-    DONDA --> ANDOUT["AND"]
-    DE --> ANDOUT
-    ANDOUT --> SOUND(["sound"])
-```
-
-`clk` y `rst` entran a todo registro/contador del módulo aunque no se dibujen en cada elemento,
-por el mismo criterio usado en el resto de los diagramas del proyecto; `rst` fuerza
-`REG_ENABLE = 0`, `dec_fin_prev = 0`, `CONT_DIVISOR = 0`, `CONT_DURACION = 0` y `REG_ONDA = 0`,
-dejando el buzzer en silencio tras cualquier reinicio, incluido `BTN_RST` a mitad de un tono.
+El diagrama de b) representa también el datapath principal de la implementación. Para módulos con
+FSM interna se incluye la secuencia de estados dentro de la explicación de funcionamiento.
