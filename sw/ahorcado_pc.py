@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# Terminal remota del ahorcado, ver docs/diseño/APP_PC.md
 import argparse
 import select
 import sys # TODO: Revisar que esto funcione en windows
