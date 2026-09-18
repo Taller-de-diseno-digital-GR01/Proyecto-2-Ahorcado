@@ -15,6 +15,7 @@ BTN_SEL[BTN_SEL] -->|sel|M09
 BTN_OK[BTN_OK] -->|ok|M09
 
 PC -->|"RX serial"| PERIFERICO_UART
+PERIFERICO_UART -->|tx_o| PC
 
 
 
