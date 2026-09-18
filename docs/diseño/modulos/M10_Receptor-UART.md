@@ -224,3 +224,35 @@ Conexiones en `src/design/top.sv`, instancia `u_receptor_uart`:
 
 Igual que en los demás módulos, el diagrama por chips que pide el método no aplica a un diseño que
 se sintetiza dentro de una sola FPGA, y esta lista de puertos es el reemplazo propuesto.
+
+---
+
+## Verificación
+
+`src/sim/tb_receptor_uart.sv` es autoverificable, corre con `make sim TB=receptor_uart` y reporta
+26 pruebas sin fallos. No instancia `PERIFERICO_UART` entero, instancia el núcleo `uart_rx` de
+verdad con `TICKS_X16 = 54` y le agrega alrededor el bit pegajoso `new_rx` que el periférico
+tendría que sostener, porque el núcleo solo da un pulso de un ciclo y eso no se puede sondear
+desde el bus. Los bytes entran bit a bit por la línea serial con su tiempo real. Comprueba:
+
+- Después del reset la letra y el `o_valid_w` quedan en cero, y el bus queda sondeando el registro
+  de control sin escribir.
+- Con la línea en reposo se queda sondeando y no entrega ninguna letra.
+- Con `new_rx` arriba pasa a leer el registro de datos, la A sale con su `o_valid_w`, y en ese
+  mismo ciclo escribe ceros para bajar `new_rx`.
+- `o_valid_w` dura un solo ciclo y el byte ya limpiado no se vuelve a entregar.
+- Los cuatro bordes del rango A-Z, la Z que pasa, el arroba que queda justo debajo de la A, el
+  corchete justo encima de la Z, más una minúscula y un dígito.
+- Que después de varios bytes botados siga entregando bien, o sea que la limpieza de `new_rx`
+  ocurre igual cuando el byte se descarta.
+- Una letra válida en selección de modo y otra mostrando resultado se descartan pero igual limpian
+  `new_rx`, y de vuelta en JUEGO la vuelve a aceptar. Esto es lo que el enunciado exige documentar
+  y acá queda además comprobado.
+- Dos bytes pegados sin un solo ciclo de línea en reposo entre el stop de uno y el start del otro.
+
+El último caso es un `rst` a mitad de un byte. La cola del byte cortado deja bits sueltos en la
+línea y el núcleo resincroniza sobre ellos armando un frame falso, así que la prueba verifica que
+al pasar ese ruido no quede ninguna letra entregándose, que el bus vuelva a ESPERA, y que el
+receptor siga recibiendo bien después.
+
+`make synth SYNTH_TOP=receptor_uart` pasa sin `Latch inferred` en el log.
